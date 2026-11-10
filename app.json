@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Zunor",
+    "slug": "zunor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "zunor",
+    "platforms": ["ios", "android", "web"],
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "org.zunor.app",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "org.zunor.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/images/icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#000000",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 140
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

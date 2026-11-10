@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+@import 'uniwind';
+
+/* Палітра кабінету сайту (web/src/routes/layout.css, блоки `.in-app` і
+   `.dark`) — ті самі назви й значення, щоб застосунок і сайт виглядали
+   однією родиною. Міняєш колір на сайті — міняй і тут. Тема йде за
+   системною (світла / темна). */
+@layer theme {
+  :root {
+    @variant light {
+      --color-background: #fbfbfb;
+      --color-foreground: #0b2833;
+      --color-card: #ffffff;
+      --color-muted: #f3f3f3;
+      --color-muted-foreground: #475d65;
+      --color-secondary: #ebebeb;
+      --color-primary: #1f6feb;
+      --color-primary-foreground: #ffffff;
+      --color-destructive: #ff3b30;
+      --color-border: rgba(11, 40, 51, 0.07);
+      --color-input: rgba(11, 40, 51, 0.15);
+      --color-field: #ffffff;
+    }
+
+    @variant dark {
+      --color-background: #15171b;
+      --color-foreground: #dbdee3;
+      --color-card: #1b1d21;
+      --color-muted: #212327;
+      --color-muted-foreground: #96989d;
+      --color-secondary: #212327;
+      --color-primary: #1f6feb;
+      --color-primary-foreground: #ffffff;
+      --color-destructive: #f85149;
+      --color-border: rgba(219, 222, 227, 0.07);
+      --color-input: rgba(219, 222, 227, 0.14);
+      --color-field: #1f2125;
+    }
+  }
+}
