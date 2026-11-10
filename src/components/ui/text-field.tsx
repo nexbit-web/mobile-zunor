@@ -28,9 +28,7 @@ export function TextField({
       <TextInput
         ref={ref}
         placeholderTextColor={c.mutedForeground}
-        className={`h-[50px] rounded-[14px] border bg-field px-4 text-[16px] text-foreground focus:border-primary ${
-          error ? 'border-destructive' : 'border-input'
-        } ${className}`}
+        className={`h-[50px] rounded-[14px] bg-field px-4 text-[16px] text-foreground ${className}`}
         {...props}
       />
       {error ? (

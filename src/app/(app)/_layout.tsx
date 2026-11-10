@@ -1,24 +1,55 @@
+import { Drawer } from 'expo-router/drawer'
 import { NativeTabs } from 'expo-router/native-tabs'
 
+import { ClientDrawer } from '@/components/drawer/client-drawer'
 import { authClient, roleOf } from '@/lib/auth'
 import { useColors } from '@/lib/theme'
 
 /**
- * Нижні вкладки — системні (на iOS 26 — Liquid Glass, на Android —
- * Material). Склад — як панель кабінету на сайті; перша вкладка майстрові
- * — стрічка заявок, клієнтові — його заявки.
+ * Каркас застосунку — за роллю, на тих самих маршрутах:
+ * - клієнт — як застосунок ІІ: увесь екран — розмова з Zunor, розділи в
+ *   бічній панелі (кнопка меню зліва вгорі або свайп від лівого краю);
+ * - майстер — системні вкладки знизу, перша — стрічка заявок.
  */
-export default function AppTabs() {
+export default function AppLayout() {
   const { data: session } = authClient.useSession()
-  const master = roleOf(session?.user) === 'MASTER'
-  const c = useColors()
+  return roleOf(session?.user) === 'MASTER' ? <MasterTabs /> : <ClientShell />
+}
 
+function ClientShell() {
+  const c = useColors()
+  return (
+    <Drawer
+      drawerContent={(props) => <ClientDrawer {...props} />}
+      screenOptions={{
+        headerShown: false,
+        // Екран відʼїжджає вправо разом із панеллю (DrawerScene малює
+        // йому заокруглення), без затемнення.
+        drawerType: 'slide',
+        overlayColor: 'transparent',
+        drawerStyle: { width: '84%', backgroundColor: c.card },
+        sceneStyle: { backgroundColor: c.background },
+        swipeEdgeWidth: 48,
+      }}
+    >
+      <Drawer.Screen name="(home)" />
+      <Drawer.Screen name="orders" />
+      <Drawer.Screen name="messages" />
+      <Drawer.Screen name="profile" />
+    </Drawer>
+  )
+}
+
+/**
+ * Майстер: системні вкладки (на iOS 26 — Liquid Glass). Сповіщення —
+ * дзвіночком у шапці (TabStack), не вкладкою.
+ */
+function MasterTabs() {
+  const c = useColors()
   return (
     <NativeTabs tintColor={c.primary} minimizeBehavior="onScrollDown">
-      <NativeTabs.Trigger name="(jobs)">
-        <NativeTabs.Trigger.Label>
-          {master ? 'Стрічка' : 'Заявки'}
-        </NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="(home)">
+        <NativeTabs.Trigger.Label>Стрічка</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           sf={{
             default: 'list.bullet.rectangle',
@@ -44,14 +75,6 @@ export default function AppTabs() {
             selected: 'bubble.left.and.bubble.right.fill',
           }}
           md="chat"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="notifications">
-        <NativeTabs.Trigger.Label>Сповіщення</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          sf={{ default: 'bell', selected: 'bell.fill' }}
-          md="notifications"
         />
       </NativeTabs.Trigger>
 

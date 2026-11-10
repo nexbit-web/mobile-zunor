@@ -22,10 +22,49 @@ config.server.enhanceMiddleware = (middleware, server) => {
   return (req, res, next) => apiProxy(req, res, () => metro(req, res, next))
 }
 
-// Uniwind — Tailwind 4 для React Native. Обгортка мусить бути зовнішньою,
-// якщо колись додасться ще якась. Типи класів генеруються під час старту
-// Metro в src/uniwind-types.d.ts.
-module.exports = withUniwindConfig(config, {
+function throttleStore(store, max) {
+  let active = 0
+  const queue = []
+  const run = (task) =>
+    new Promise((resolve, reject) => {
+      const start = () => {
+        active++
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => {
+            active--
+            queue.shift()?.()
+          })
+      }
+      if (active < max) start()
+      else queue.push(start)
+    })
+  return {
+    get: (key) => run(() => store.get(key)),
+    set: (key, value) => run(() => store.set(key, value)),
+    clear: () => store.clear(),
+  }
+}
+
+// Uniwind — Tailwind 4 для React Native. Типи класів генеруються під час
+// старту Metro в src/uniwind-types.d.ts.
+const finalConfig = withUniwindConfig(config, {
   cssEntryFile: './src/global.css',
   dtsFile: './src/uniwind-types.d.ts',
 })
+
+// Windows: обходячи залежності, Metro читає кеш тисячами файлів РАЗОМ (без
+// обмеження) і впирається в ліміт відкритих файлів — «EMFILE: too many open
+// files» посеред збірки. Пропускаємо до 32 читань/записів одночасно, решта
+// чекає в черзі: на швидкість це майже не впливає.
+//
+// САМЕ ТУТ, ПІСЛЯ withUniwindConfig: Uniwind підміняє cacheStores своїм
+// сховищем, і обмеження, поставлене до нього, мовчки зникало.
+if (process.platform === 'win32') {
+  finalConfig.cacheStores = (finalConfig.cacheStores ?? []).map((store) =>
+    throttleStore(store, 32),
+  )
+}
+
+module.exports = finalConfig

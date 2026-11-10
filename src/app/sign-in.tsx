@@ -139,10 +139,22 @@ export default function SignInScreen() {
   )
 }
 
-function signInError(err: { status: number; message?: string }): string {
-  if (err.status === 401) return 'Невірна пошта або пароль'
-  if (err.status === 403)
-    return 'Спершу підтвердіть пошту — код ми надіслали листом'
+// За кодом better-auth, а не за статусом: 403 — це і «пошту не
+// підтверджено», і «чужа адреса застосунку» (INVALID_ORIGIN), а людині
+// треба різне.
+function signInError(err: {
+  status: number
+  code?: string
+  message?: string
+}): string {
+  if (err.code === 'INVALID_EMAIL_OR_PASSWORD' || err.status === 401)
+    return 'Невірна пошта або пароль'
+  if (err.code === 'EMAIL_NOT_VERIFIED')
+    return 'Пошту ще не підтверджено. Увійдіть на сайті — там надішлемо код'
+  if (err.code === 'INVALID_ORIGIN')
+    return __DEV__
+      ? 'Сервер не пускає вхід з Expo Go: на ньому потрібен ZUNOR_EXPO_GO=1 (web/docs/deploy-vercel.md)'
+      : 'Ця версія застосунку застаріла. Оновіть її'
   if (err.status === 429) return 'Забагато спроб. Спробуйте за хвилину'
   return err.message || 'Не вдалося увійти. Спробуйте ще раз'
 }

@@ -1,13 +1,14 @@
-import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react-native'
 import { Text, View } from 'react-native'
 
+import { Glyph, type GlyphName } from '@/components/icons/glyph'
+import { SQUIRCLE } from '@/components/ui/tile'
 import { useColors } from '@/lib/theme'
 
 import { Button } from './ui/button'
 
 /**
- * Порожній стан і стан помилки: іконка в плитці, заголовок, пояснення й
- * одна дія. Іконки — Hugeicons Stroke Rounded, як на сайті.
+ * Порожній стан і стан помилки: велика плитка з системною іконкою,
+ * заголовок, пояснення й одна дія.
  */
 export function EmptyState({
   icon,
@@ -15,7 +16,7 @@ export function EmptyState({
   text,
   action,
 }: {
-  icon: IconSvgElement
+  icon: GlyphName
   title: string
   text?: string
   action?: { label: string; onPress: () => void }
@@ -23,10 +24,13 @@ export function EmptyState({
   const c = useColors()
   return (
     <View className="flex-1 items-center justify-center gap-3 px-8 py-16">
-      <View className="mb-1 size-14 items-center justify-center rounded-2xl bg-secondary">
-        <HugeiconsIcon icon={icon} size={26} color={c.foreground} strokeWidth={1.5} />
+      <View
+        className="mb-2 size-[72px] items-center justify-center rounded-[22px] bg-shell"
+        style={SQUIRCLE}
+      >
+        <Glyph name={icon} size={32} color={c.mutedForeground} />
       </View>
-      <Text className="text-center text-[17px] font-semibold text-foreground">
+      <Text className="text-center text-[20px] font-bold tracking-tight text-foreground">
         {title}
       </Text>
       {text ? (
@@ -35,7 +39,7 @@ export function EmptyState({
         </Text>
       ) : null}
       {action ? (
-        <Button variant="secondary" onPress={action.onPress} className="mt-2">
+        <Button onPress={action.onPress} className="mt-3 self-stretch">
           {action.label}
         </Button>
       ) : null}

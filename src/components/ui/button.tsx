@@ -5,6 +5,7 @@ const VARIANTS = {
     box: 'bg-primary active:opacity-85',
     text: 'text-primary-foreground',
   },
+  // Сіра заливка без контуру — як «сірі» кнопки iOS.
   secondary: {
     box: 'bg-secondary active:opacity-75',
     text: 'text-foreground',

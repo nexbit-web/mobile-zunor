@@ -1,12 +1,14 @@
-import { AlertCircleIcon, StarIcon } from '@hugeicons/core-free-icons'
+import { StarIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react-native'
 import { useQuery } from '@tanstack/react-query'
 import { Image } from 'expo-image'
 import { useLocalSearchParams } from 'expo-router'
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
+import Animated from 'react-native-reanimated'
 
 import { EmptyState } from '@/components/empty-state'
 import { api, errorText } from '@/lib/api'
+import { useLargeTitleScroll } from '@/lib/large-title'
 import { useColors } from '@/lib/theme'
 import { formatRelative } from '@/shared/format'
 import { jobState, type JobDetail } from '@/shared/jobs'
@@ -15,10 +17,14 @@ import { jobState, type JobDetail } from '@/shared/jobs'
  * Заявка. Дані — GET /api/jobs/[id], той самий доступ, що й на сайті
  * (job-access): чужа заявка — 404. Деталей прибирання (кімнати, вікна)
  * ендпоінт поки не віддає — це наступний крок на сервері.
+ *
+ * Маршрут — app/job/[id].tsx, у корені поверх усього.
  */
-export default function JobScreen() {
+export function JobScreen() {
   const c = useColors()
   const { id } = useLocalSearchParams<{ id: string }>()
+  // Під напівпрозорою шапкою з великим заголовком (lib/large-title).
+  const { padTop, scrollProps } = useLargeTitleScroll()
   const q = useQuery({
     queryKey: ['job', id],
     queryFn: () => api<JobDetail>(`/api/jobs/${encodeURIComponent(id)}`),
@@ -36,7 +42,7 @@ export default function JobScreen() {
     return (
       <View className="flex-1 bg-background">
         <EmptyState
-          icon={AlertCircleIcon}
+          icon="warning"
           title="Заявку не відкрито"
           text={errorText(q.error)}
           action={{ label: 'Спробувати ще', onPress: () => q.refetch() }}
@@ -49,12 +55,16 @@ export default function JobScreen() {
   const state = jobState(job, isOwner ? 'client' : 'master')
 
   return (
-    <ScrollView
+    <Animated.ScrollView
+      {...scrollProps}
       className="bg-background"
-      contentInsetAdjustmentBehavior="automatic"
       contentContainerClassName="gap-5 p-4"
+      contentContainerStyle={{ paddingTop: padTop + 8 }}
     >
-      <View className="gap-3 rounded-2xl border border-border bg-card p-4">
+      <View
+        className="gap-3 rounded-[22px] bg-card p-4"
+        style={{ borderCurve: 'continuous' }}
+      >
         <Text className="text-[13px] text-muted-foreground">
           Опубліковано {formatRelative(job.createdAt)}
         </Text>
@@ -120,6 +130,6 @@ export default function JobScreen() {
           </View>
         </ScrollView>
       ) : null}
-    </ScrollView>
+    </Animated.ScrollView>
   )
 }

@@ -1,27 +1,33 @@
-import { AlertCircleIcon, Task01Icon } from '@hugeicons/core-free-icons'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import * as WebBrowser from 'expo-web-browser'
-import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native'
+import { router } from 'expo-router'
+import type { ReactElement } from 'react'
+import { ActivityIndicator, RefreshControl, View } from 'react-native'
+import Animated from 'react-native-reanimated'
 
 import { EmptyState } from '@/components/empty-state'
 import { JobCard } from '@/components/jobs/job-card'
 import { api, errorText } from '@/lib/api'
-import { authClient, roleOf } from '@/lib/auth'
-import { SITE_URL } from '@/lib/config'
+import { useLargeTitleScroll } from '@/lib/large-title'
 import { useColors } from '@/lib/theme'
 import type { JobsPage } from '@/shared/jobs'
 
 /**
- * Перша вкладка. Клієнтові — його заявки, майстрові — стрічка. Обидва
- * списки віддає той самий ендпоінт сайту, що й веб-сторінки:
- * GET /api/jobs/feed?view=mine|feed — правила стрічки (хвилі розсилки,
- * відстань, «Топ для тебе») рахує сервер, а не застосунок.
+ * Список заявок. Майстрові — стрічка (головна вкладка), клієнтові — його
+ * заявки (вкладка «Замовлення»). Обидва списки віддає той самий ендпоінт
+ * сайту: GET /api/jobs/feed?view=feed|mine — правила стрічки (хвилі
+ * розсилки, відстань) рахує сервер, а не застосунок.
  */
-export default function JobsScreen() {
+export function JobsList({
+  view,
+  header,
+}: {
+  view: 'feed' | 'mine'
+  /** Над списком (перемикач у «Замовленнях») — усередині прокрутки, щоб
+   *  великий заголовок iOS згортався. */
+  header?: ReactElement
+}) {
   const c = useColors()
-  const { data: session } = authClient.useSession()
-  const master = roleOf(session?.user) === 'MASTER'
-  const view = master ? 'feed' : 'mine'
+  const master = view === 'feed'
 
   const q = useInfiniteQuery({
     queryKey: ['jobs', view],
@@ -36,30 +42,30 @@ export default function JobsScreen() {
   })
 
   const jobs = q.data?.pages.flatMap((p) => p.jobs) ?? []
-
-  if (q.isPending) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <ActivityIndicator color={c.mutedForeground} />
-      </View>
-    )
-  }
+  // Під напівпрозорою шапкою з великим заголовком (lib/large-title).
+  const { top, padTop, scrollProps } = useLargeTitleScroll({ refresh: true })
 
   return (
-    <FlatList
+    <Animated.FlatList
+      {...scrollProps}
       className="bg-background"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerClassName="grow gap-3 p-4"
+      contentContainerClassName="grow gap-3 px-4 pb-10"
+      contentContainerStyle={{ paddingTop: padTop + 8 }}
       data={jobs}
       keyExtractor={(job) => job.id}
+      ListHeaderComponent={header}
       renderItem={({ item }) => (
-        <JobCard job={item} viewer={master ? 'master' : 'client'} />
+        <JobCard
+          job={item}
+          viewer={master ? 'master' : 'client'}
+        />
       )}
       refreshControl={
         <RefreshControl
           refreshing={q.isRefetching && !q.isFetchingNextPage}
           onRefresh={() => void q.refetch()}
           tintColor={c.mutedForeground}
+          progressViewOffset={top}
         />
       }
       onEndReachedThreshold={0.5}
@@ -72,28 +78,31 @@ export default function JobsScreen() {
         ) : undefined
       }
       ListEmptyComponent={
-        q.isError ? (
+        q.isPending ? (
+          <View className="flex-1 items-center justify-center py-16">
+            <ActivityIndicator color={c.mutedForeground} />
+          </View>
+        ) : q.isError ? (
           <EmptyState
-            icon={AlertCircleIcon}
+            icon="warning"
             title="Не вдалося завантажити"
             text={errorText(q.error)}
             action={{ label: 'Спробувати ще', onPress: () => q.refetch() }}
           />
         ) : master ? (
           <EmptyState
-            icon={Task01Icon}
+            icon="findJobs"
             title="Нових заявок поки немає"
             text="Щойно зʼявиться заявка поруч із вами, ми надішлемо сповіщення."
           />
         ) : (
           <EmptyState
-            icon={Task01Icon}
+            icon="inbox"
             title="Заявок поки немає"
-            text="Опишіть, що прибрати, — Zunor сам знайде майстрів. У застосунку це зʼявиться незабаром, поки що — на сайті."
+            text="Опишіть, що прибрати, — Zunor сам знайде майстрів."
             action={{
-              label: 'Створити на сайті',
-              onPress: () =>
-                WebBrowser.openBrowserAsync(`${SITE_URL}/dashboard/jobs/new`),
+              label: 'Написати Zunor',
+              onPress: () => router.navigate('/'),
             }}
           />
         )
