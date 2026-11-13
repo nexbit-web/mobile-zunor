@@ -1,7 +1,6 @@
-import { BlurView } from 'expo-blur'
-import { Platform, useColorScheme, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 
-import { useColors, withAlpha } from '@/lib/theme'
+import { useColors } from '@/lib/theme'
 
 const FILL = {
   position: 'absolute',
@@ -12,29 +11,23 @@ const FILL = {
 } as const
 
 /**
- * Напівпрозорий фон шапки й смуг під нею, як «матеріал» iOS: розмиття плюс
- * колір фону застосунку на ~70% — зміст, що заходить під шапку, ледь
- * проглядає. На Android розмиття без окремого налаштування немає — там
- * лише колір, щільніший, щоб текст під шапкою не заважав читати.
+ * Тло шапки розмови — таке саме, як у поля внизу (ChatComposer): суцільний
+ * колір фону й тонка лінія-край (у шапки — знизу, у поля — згори). Так
+ * попросив власник: раніше тут було напівпрозоре скло з розмиттям, і
+ * шапка виглядала інакше, ніж низ.
+ *
+ * `color` — тло сторінки, якщо воно не звичайне.
  */
-export function Backdrop() {
+export function Backdrop({ color }: { color?: string } = {}) {
   const c = useColors()
-  const dark = useColorScheme() === 'dark'
-  const android = Platform.OS === 'android'
   return (
-    <View pointerEvents="none" style={FILL}>
-      {android ? null : (
-        <BlurView
-          tint={dark ? 'dark' : 'light'}
-          intensity={Platform.OS === 'ios' ? 40 : 24}
-          style={FILL}
-        />
-      )}
+    <View
+      pointerEvents="none"
+      style={[FILL, { backgroundColor: color ?? c.background }]}
+    >
       <View
-        style={[
-          FILL,
-          { backgroundColor: withAlpha(c.background, android ? 0.92 : 0.72) },
-        ]}
+        className="absolute inset-x-0 bottom-0 bg-border"
+        style={{ height: StyleSheet.hairlineWidth }}
       />
     </View>
   )

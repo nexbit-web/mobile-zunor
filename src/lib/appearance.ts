@@ -49,18 +49,23 @@ export type AccentId = (typeof ACCENTS)[number]['id']
 /** Синій — базовий у global.css; його не зберігаємо, як і на сайті. */
 export const DEFAULT_ACCENT: AccentId = 'blue'
 
-// Звичайні й контрастні значення сірого тексту, рамок і полів.
+// Звичайні й контрастні значення сірого тексту, рамок, полів і граней
+// кнопок шапки (global.css).
 const CONTRAST: Record<'normal' | 'more', Record<Tone, Record<string, string>>> = {
   normal: {
     light: {
-      '--color-muted-foreground': '#5f6e75',
-      '--color-border': 'rgba(11, 40, 51, 0.08)',
-      '--color-input': 'rgba(11, 40, 51, 0.14)',
+      '--color-muted-foreground': '#6b6b70',
+      '--color-border': 'rgba(0, 0, 0, 0.07)',
+      '--color-input': 'rgba(0, 0, 0, 0.12)',
+      '--color-chip-edge': '#dfdfe4',
+      '--color-field-edge': '#b3b3b3',
     },
     dark: {
-      '--color-muted-foreground': '#98989f',
-      '--color-border': 'rgba(255, 255, 255, 0.08)',
-      '--color-input': 'rgba(255, 255, 255, 0.13)',
+      '--color-muted-foreground': '#9b9b9b',
+      '--color-border': 'rgba(255, 255, 255, 0.07)',
+      '--color-input': 'rgba(255, 255, 255, 0.12)',
+      '--color-chip-edge': 'rgba(255, 255, 255, 0.12)',
+      '--color-field-edge': 'rgba(255, 255, 255, 0.16)',
     },
   },
   more: {
@@ -68,11 +73,15 @@ const CONTRAST: Record<'normal' | 'more', Record<Tone, Record<string, string>>> 
       '--color-muted-foreground': '#424242',
       '--color-border': '#b3b3b3',
       '--color-input': '#646464',
+      '--color-chip-edge': '#646464',
+      '--color-field-edge': '#646464',
     },
     dark: {
       '--color-muted-foreground': '#d4d4d4',
       '--color-border': '#646464',
       '--color-input': '#b3b3b3',
+      '--color-chip-edge': '#b3b3b3',
+      '--color-field-edge': '#b3b3b3',
     },
   },
 }

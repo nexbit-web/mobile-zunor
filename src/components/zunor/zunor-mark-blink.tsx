@@ -16,15 +16,21 @@ import { recolorMono } from './lottie-mono'
  * Колір — колір тексту: чорний у світлій темі, білий у темній.
  * «Зменшити рух» у системі — статичний знак.
  */
-export function ZunorBlinkMark({ size = 48 }: { size?: number }) {
+export function ZunorBlinkMark({
+  size = 48,
+  inverse = false,
+}: {
+  size?: number
+  /** Знак кольору фону — для темного кружечка-аватара. */
+  inverse?: boolean
+}) {
   const c = useColors()
   const reduceMotion = useReducedMotion()
-  const source = useMemo(
-    () => recolorMono(blink, c.foreground, c.background),
-    [c.foreground, c.background],
-  )
+  const fg = inverse ? c.background : c.foreground
+  const bg = inverse ? c.foreground : c.background
+  const source = useMemo(() => recolorMono(blink, fg, bg), [fg, bg])
 
-  if (reduceMotion) return <ZunorMark size={size} color={c.foreground} />
+  if (reduceMotion) return <ZunorMark size={size} color={fg} />
   return (
     <LottieView
       source={source}

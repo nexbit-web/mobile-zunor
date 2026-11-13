@@ -1,55 +1,77 @@
 @import 'tailwindcss';
 @import 'uniwind';
 
-/* Палітра застосунку — у мові iOS / Telegram, щоб на телефоні виглядало
-   рідним, а не перенесеним із вебу. Акцент і темно-бірюзовий текст
-   світлої теми — з кабінету сайту (web/src/routes/layout.css).
+/* Палітра застосунку — у подачі ClickUp (так попросив власник): спокійні
+   нейтральні сірі без відтінку, текст майже чорний / майже білий.
+   Акцент — з кабінету сайту (web/src/routes/layout.css). Кабінет сайту
+   (там .in-app і .dark) — та сама палітра (власник): міняєш тут, міняй
+   і там.
 
-   Темна — справжній чорний фон (OLED, як Telegram і системні
-   застосунки), над ним шари сірого за шкалою iOS:
-     background #000 → card / shell #1c1c1e → secondary #2c2c2e.
-   Світла — «згрупована» iOS: сірий фон #f2f2f7, білі картки й поле.
+   Світла — білий фон, картки й поля ледь сірі:
+     background #fff → card #f6f6f7 → shell / field #f2f2f4 → secondary #eaeaed.
+   Темна — графітова, не чиста чорна: м'якше для очей, шари видно краще:
+     background #141414 → card / shell #222 → secondary #2e2e2e.
+
+   Бічна панель клієнта (`drawer`) і грань сторінки над нею
+   (`drawer-edge`) — кольори зі скриншота ClickUp, який дав власник:
+   панель #191919, грань — світла лінія ~#313131 на темній сторінці.
 
    Шари — від фону вгору:
-     background → card (картки) → shell (поле вводу, круглі кнопки,
-     підказки) → secondary (натиснуте, чіпи, доріжка перемикача).
-   Усе, що натискається, — shell + контур `input`.
+     background → card (картки) → shell (поле вводу, підказки) →
+     secondary (натиснуте, чіпи, доріжка перемикача).
+   Кнопки шапки (круглі, «Змінити») і поле пошуку — `chip` + грань
+   `chip-edge`: у світлій — біле коло з чіткою непрозорою гранню й легкою
+   тінню (ui/chip.ts) — сіре з напівпрозорим контуром на білому власник
+   назвав «брудним»; у темній — #222 зі світлою гранню.
+   Поля входу (ui/text-field) — рамка `field-edge`, як поле входу на
+   сайті (#b3b3b3 у світлій): звичайна `input` там надто бліда.
 
    Акцент і висока контрастність міняються з налаштувань (lib/appearance.ts
    переписує --color-primary, --color-muted-foreground, --color-border,
-   --color-input) — міняєш тут, міняй і там. */
+   --color-input, --color-chip-edge, --color-field-edge) — міняєш тут,
+   міняй і там. */
 @layer theme {
   :root {
     @variant light {
-      --color-background: #f2f2f7;
-      --color-foreground: #0b2833;
-      --color-card: #ffffff;
-      --color-muted: #e9e9ee;
-      --color-muted-foreground: #5f6e75;
-      --color-secondary: #e5e5ea;
+      --color-background: #ffffff;
+      --color-foreground: #1f1f1f;
+      --color-card: #f6f6f7;
+      --color-muted: #efeff1;
+      --color-muted-foreground: #6b6b70;
+      --color-secondary: #eaeaed;
       --color-primary: #1f6feb;
       --color-primary-foreground: #ffffff;
-      --color-destructive: #ff3b30;
-      --color-border: rgba(11, 40, 51, 0.08);
-      --color-input: rgba(11, 40, 51, 0.14);
-      --color-field: #ffffff;
-      --color-shell: #ffffff;
+      --color-destructive: #e5484d;
+      --color-border: rgba(0, 0, 0, 0.07);
+      --color-input: rgba(0, 0, 0, 0.12);
+      --color-field: #f2f2f4;
+      --color-shell: #f2f2f4;
+      --color-drawer: #f6f6f7;
+      --color-drawer-edge: rgba(0, 0, 0, 0.1);
+      --color-chip: #ffffff;
+      --color-chip-edge: #dfdfe4;
+      --color-field-edge: #b3b3b3;
     }
 
     @variant dark {
-      --color-background: #000000;
-      --color-foreground: #f5f5f7;
-      --color-card: #1c1c1e;
-      --color-muted: #1c1c1e;
-      --color-muted-foreground: #98989f;
-      --color-secondary: #2c2c2e;
+      --color-background: #141414;
+      --color-foreground: #f2f2f2;
+      --color-card: #222222;
+      --color-muted: #222222;
+      --color-muted-foreground: #9b9b9b;
+      --color-secondary: #2e2e2e;
       --color-primary: #1f6feb;
       --color-primary-foreground: #ffffff;
-      --color-destructive: #ff453a;
-      --color-border: rgba(255, 255, 255, 0.08);
-      --color-input: rgba(255, 255, 255, 0.13);
-      --color-field: #1c1c1e;
-      --color-shell: #1c1c1e;
+      --color-destructive: #f2555a;
+      --color-border: rgba(255, 255, 255, 0.07);
+      --color-input: rgba(255, 255, 255, 0.12);
+      --color-field: #222222;
+      --color-shell: #222222;
+      --color-drawer: #191919;
+      --color-drawer-edge: rgba(255, 255, 255, 0.14);
+      --color-chip: #222222;
+      --color-chip-edge: rgba(255, 255, 255, 0.12);
+      --color-field-edge: rgba(255, 255, 255, 0.16);
     }
   }
 }

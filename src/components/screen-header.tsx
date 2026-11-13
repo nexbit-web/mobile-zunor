@@ -1,27 +1,54 @@
 import type { NativeStackHeaderProps } from 'expo-router'
-import { Pressable, Text, View } from 'react-native'
+import { useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
 import Animated, {
-  Extrapolation,
-  interpolate,
+  useAnimatedReaction,
   useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { Glyph } from '@/components/icons/glyph'
 import { Backdrop } from '@/components/ui/backdrop'
-import { headerScroll, HEADER_BAR, LARGE_TITLE } from '@/lib/large-title'
+import { HeaderFade } from '@/components/ui/header-fade'
+import { RoundButton } from '@/components/ui/round-button'
+import {
+  HEADER_BAR,
+  headerAway,
+  headerScroll,
+  useInlineTitles,
+} from '@/lib/large-title'
 import { useColors } from '@/lib/theme'
 
 /**
  * Шапка всіх екранів зі стеком — своя, а не системна, щоб скрізь була
  * однакова, але в подачі Apple:
- * - лежить ПОВЕРХ екрана й напівпрозора з розмиттям: зміст, що заходить
- *   під неї, ледь проглядає (екран для цього вмикає `headerTransparent`
- *   і відступає згори — lib/large-title);
- * - під нею — великий заголовок ліворуч; гортаєш — він їде під шапку, а
- *   в шапці по центру зʼявляється маленька назва;
- * - зліва — «‹ Назад» кольору акценту, як у iOS (або те, що дав екран:
- *   меню клієнта, «Скасувати» в редагуванні), праворуч — `headerRight`.
+ * - лежить ПОВЕРХ екрана (екран для цього вмикає `headerTransparent` і
+ *   відступає згори — lib/large-title). Тло — градієнт кольору фону
+ *   (HeaderFade): зміст заходить під шапку й до верху екрана плавно тоне
+ *   у фон, без лінії-краю. Два винятки:
+ *   - `headerShadowVisible: false` — тло малює сам екран (SwipeTabs: один
+ *     ефект від верху екрана до перемикача, інакше два накладались би);
+ *   - `headerBlurEffect` — тверда шапка з чітким краєм (Backdrop):
+ *     розмова — суцільний фон і лінія, як у поля внизу (власник);
+ * - кнопки — круглі, на підкладці з контуром (RoundButton, HeaderPill),
+ *   «Назад» — такою самою кнопкою з шевроном кольору тексту (так попросив
+ *   власник);
+ * - головний екран майстра із системними вкладками (lib/dock,
+ *   MASTER_DOCK = false) — на самому верху назва великим ліворуч;
+ *   щойно зміст пішов під шапку — велика тане, по центру — маленька, як в
+ *   App Store. З нижньою панеллю — як у клієнта (нижче): назва ліворуч і
+ *   не переїжджає (власник);
+ * - решта — назва по центру, зліва «Назад» (або те, що дав екран: меню
+ *   клієнта, «✕» у редагуванні), праворуч — `headerRight`. Бічні
+ *   місця однакові (назва — точно по центру) і не вужчі за свій вміст:
+ *   «Змінити» ширша за кнопку — тоді обидва розсуваються, а назва
+ *   скорочується;
+ * - екран може дати свою назву (`headerTitle`-функція — розмова: імʼя й
+ *   «у мережі»);
+ * - `headerTitleAlign: 'left'` без кнопки зліва — назва ліворуч, більша
+ *   (22 pt) і така сама під час прокрутки: розділи з нижньою панеллю
+ *   (lib/dock) — і клієнта, і майстра.
  */
 export function ScreenHeader({
   navigation,
@@ -33,96 +60,190 @@ export function ScreenHeader({
   const c = useColors()
   const title = typeof options.title === 'string' ? options.title : route.name
   const canGoBack = Boolean(back)
-  const y = headerScroll(route.key)
+  // Екран зі своїм тлом (заявка — колір картки) дає його через headerStyle.
+  const headerBg = StyleSheet.flatten(options.headerStyle)?.backgroundColor
+  // Назва ліворуч, що не згортається (`headerTitleAlign: 'left'` — розділи
+  // з нижньою панеллю, і в майстра теж), важливіша за «велику → маленьку».
+  const inline =
+    useInlineTitles() &&
+    !canGoBack &&
+    !options.headerLeft &&
+    options.headerTitleAlign !== 'left'
+  const customTitle =
+    typeof options.headerTitle === 'function'
+      ? options.headerTitle({ children: title, tintColor: c.foreground })
+      : null
 
-  // Свій headerLeft екрана (меню клієнта, «Скасувати» в редагуванні)
+  // Свій headerLeft екрана (меню клієнта, «✕» у редагуванні)
   // важливіший за «Назад».
   const left = options.headerLeft ? (
-    <View className="-ml-2.5">
-      {options.headerLeft({ tintColor: c.foreground, canGoBack })}
-    </View>
+    options.headerLeft({ tintColor: c.foreground, canGoBack })
   ) : canGoBack ? (
-    <BackButton onPress={() => navigation.goBack()} />
+    <RoundButton
+      icon="back"
+      label="Назад"
+      onPress={() => navigation.goBack()}
+    />
   ) : null
   const right = options.headerRight?.({ tintColor: c.foreground, canGoBack })
+  // Розділ клієнта з нижньою панеллю (прототип, lib/dock): зліва нічого —
+  // назва ліворуч, більша.
+  const leftTitle = options.headerTitleAlign === 'left' && !left
+  // Справжня ширина вмісту зліва й справа — від неї ширина бічних місць.
+  // Місце — НЕ вужче за вміст (minWidth, а не width): у тісному місці
+  // пігулка «Змінити» мірялась би стиснутою — колом з половиною «З».
+  const [leftW, setLeftW] = useState(0)
+  const [rightW, setRightW] = useState(0)
+  const slot = Math.max(SLOT, Math.ceil(leftW), Math.ceil(rightW))
 
-  // Маленька назва — коли великий заголовок майже сховався під шапку.
-  const smallTitle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      y.get(),
-      [LARGE_TITLE - 22, LARGE_TITLE - 4],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
-  }))
-  // Великий — їде разом зі списком (і вниз, коли список тягнуть).
-  const largeTitle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -y.get() }],
-  }))
+  // Велика назва ліворуч ↔ маленька по центру: перемикаємо за порогом
+  // прокрутки, а не пропорційно — без напівпрозорих «двох назв» разом.
+  const y = headerScroll(route.key)
+  const collapsed = useSharedValue(0)
+  useAnimatedReaction(
+    () => y.get() > COLLAPSE_AT,
+    (now, prev) => {
+      if (now !== prev) {
+        collapsed.set(withTiming(now ? 1 : 0, { duration: 220 }))
+      }
+    },
+  )
+  const big = useAnimatedStyle(() => {
+    const k = collapsed.get()
+    return {
+      opacity: 1 - k,
+      transform: [{ translateY: -8 * k }, { scale: 1 - 0.08 * k }],
+    }
+  })
+  const small = useAnimatedStyle(() => {
+    const k = collapsed.get()
+    return { opacity: k, transform: [{ translateY: 6 * (1 - k) }] }
+  })
+  // Екран кладе на місце шапки своє (пошук у чатах) — шапка плавно гасне.
+  const away = headerAway(route.key)
+  const presence = useAnimatedStyle(() => ({ opacity: 1 - away.get() }))
+  const bg = typeof headerBg === 'string' ? headerBg : undefined
+  const height = insets.top + HEADER_BAR
 
   return (
-    <View style={{ height: insets.top + HEADER_BAR }}>
-      <Backdrop />
+    <Animated.View style={[{ height }, presence]}>
+      {options.headerBlurEffect ? (
+        <Backdrop color={bg} />
+      ) : options.headerShadowVisible === false ? null : (
+        <HeaderFade height={height} color={bg} />
+      )}
       <View style={{ paddingTop: insets.top }}>
-        <View
-          className="flex-row items-center px-4"
-          style={{ height: HEADER_BAR }}
-        >
-          <View className="w-[116px] flex-row items-center">{left}</View>
-          <Animated.Text
-            numberOfLines={1}
-            className="flex-1 text-center text-[17px] font-semibold text-foreground"
-            style={smallTitle}
+        {inline ? (
+          <View
+            className="flex-row items-center gap-3 px-4"
+            style={{ height: HEADER_BAR }}
           >
-            {title}
-          </Animated.Text>
-          {/* Дзвіночок (кнопка-іконка) сам зсуває зону дотику до краю. */}
-          <View className="w-[116px] flex-row items-center justify-end gap-2">
-            {right}
+            {/* Маленька — по центру всієї шапки, не залазить на кнопки. */}
+            <Animated.View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={[
+                {
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: Math.max(rightW, 60) + 20,
+                },
+                small,
+              ]}
+            >
+              <Text
+                numberOfLines={1}
+                className="text-[17px] font-semibold text-foreground"
+              >
+                {title}
+              </Text>
+            </Animated.View>
+            <Animated.Text
+              numberOfLines={1}
+              accessibilityRole="header"
+              className="flex-1 text-[30px] font-bold tracking-[-0.6px] text-foreground"
+              style={[{ transformOrigin: 'left' }, big]}
+            >
+              {title}
+            </Animated.Text>
+            {/* Дзвіночок (кнопка-іконка) сам зсуває зону дотику до краю. */}
+            <View
+              className="flex-row items-center gap-2"
+              onLayout={(e) => setRightW(e.nativeEvent.layout.width)}
+            >
+              {right}
+            </View>
           </View>
-        </View>
+        ) : leftTitle ? (
+          <View
+            className="flex-row items-center gap-3 px-4"
+            style={{ height: HEADER_BAR }}
+          >
+            <Text
+              numberOfLines={1}
+              accessibilityRole="header"
+              className="flex-1 pl-1 text-[22px] font-bold tracking-[-0.4px] text-foreground"
+            >
+              {title}
+            </Text>
+            <View
+              className="flex-row items-center gap-2"
+              onLayout={(e) => setRightW(e.nativeEvent.layout.width)}
+            >
+              {right}
+            </View>
+          </View>
+        ) : (
+          <View
+            className="flex-row items-center px-4"
+            style={{ height: HEADER_BAR }}
+          >
+            <View className="flex-row items-center" style={{ minWidth: slot }}>
+              <View
+                className="flex-row items-center"
+                onLayout={(e) => setLeftW(e.nativeEvent.layout.width)}
+              >
+                {left}
+              </View>
+            </View>
+            {/* Від кнопок — проміжок, щоб довга назва не липла до кола. */}
+            {customTitle ? (
+              <View className="flex-1 items-center px-2">{customTitle}</View>
+            ) : (
+              <Text
+                numberOfLines={1}
+                accessibilityRole="header"
+                className="flex-1 px-2 text-center text-[17px] font-semibold text-foreground"
+              >
+                {title}
+              </Text>
+            )}
+            <View
+              className="flex-row items-center justify-end"
+              style={{ minWidth: slot }}
+            >
+              <View
+                className="flex-row items-center gap-2"
+                onLayout={(e) => setRightW(e.nativeEvent.layout.width)}
+              >
+                {right}
+              </View>
+            </View>
+          </View>
+        )}
       </View>
-
-      {/* Великий заголовок — під шапкою, обрізаний по її нижньому краю:
-          їдучи вгору, він ховається під неї. Дотики проходять крізь нього
-          до списку. Нижче за межі шапки — тому висота з запасом під
-          «потягни вниз». */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: insets.top + HEADER_BAR,
-          left: 0,
-          right: 0,
-          height: LARGE_TITLE + 240,
-          overflow: 'hidden',
-        }}
-      >
-        <Animated.Text
-          numberOfLines={1}
-          className="px-4 pt-0.5 text-[34px] font-bold leading-[41px] tracking-[-0.6px] text-foreground"
-          style={largeTitle}
-        >
-          {title}
-        </Animated.Text>
-      </View>
-    </View>
+    </Animated.View>
   )
 }
 
-/** «‹ Назад» — кольору акценту, як системна кнопка iOS. */
-function BackButton({ onPress }: { onPress: () => void }) {
-  const c = useColors()
-  return (
-    <Pressable
-      onPress={onPress}
-      hitSlop={8}
-      accessibilityRole="button"
-      accessibilityLabel="Назад"
-      className="-ml-1.5 h-10 flex-row items-center active:opacity-50"
-    >
-      <Glyph name="back" size={23} color={c.primary} weight="semibold" />
-      <Text className="ml-0.5 text-[17px] text-primary">Назад</Text>
-    </Pressable>
-  )
-}
+/** Найвужче бічне місце — одна кругла кнопка. */
+const SLOT = 44
+
+/** Скільки прокрутити, щоб велика назва поступилась маленькій по центру. */
+const COLLAPSE_AT = 8

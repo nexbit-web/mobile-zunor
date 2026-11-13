@@ -19,13 +19,13 @@ export function ComingSoon({
   title: string
   text: string
 }) {
-  const { padTop, scrollProps } = useLargeTitleScroll()
+  const { padTop, padBottom, scrollProps } = useLargeTitleScroll()
   return (
     <Animated.ScrollView
       {...scrollProps}
       className="bg-background"
       contentContainerClassName="grow"
-      contentContainerStyle={{ paddingTop: padTop }}
+      contentContainerStyle={{ paddingTop: padTop, paddingBottom: padBottom }}
     >
       <EmptyState icon={icon} title={title} text={text} />
     </Animated.ScrollView>

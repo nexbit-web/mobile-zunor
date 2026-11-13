@@ -1,12 +1,6 @@
-import { ComingSoon } from '@/components/coming-soon'
+import { ChatList } from '@/components/chat/chat-list'
 
-// Далі: GET /api/chats і Pusher (`/api/pusher/auth`) — список і живі чати.
+/** Розмови з майстрами чи клієнтами — components/chat/chat-list. */
 export default function MessagesScreen() {
-  return (
-    <ComingSoon
-      icon="chats"
-      title="Чати — незабаром"
-      text="Листування з майстрами й клієнтами переїде сюди. Поки що — на сайті."
-    />
-  )
+  return <ChatList />
 }

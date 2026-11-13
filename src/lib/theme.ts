@@ -22,6 +22,10 @@ export function useColors() {
     input,
     shell,
     destructive,
+    secondary,
+    drawer,
+    drawerEdge,
+    field,
   ] = useCSSVariable([
     '--color-background',
     '--color-foreground',
@@ -33,19 +37,27 @@ export function useColors() {
     '--color-input',
     '--color-shell',
     '--color-destructive',
+    '--color-secondary',
+    '--color-drawer',
+    '--color-drawer-edge',
+    '--color-field',
   ])
 
   return {
-    background: pick(background, '#f2f2f7'),
-    foreground: pick(foreground, '#0b2833'),
-    card: pick(card, '#ffffff'),
-    mutedForeground: pick(mutedForeground, '#5f6e75'),
+    background: pick(background, '#ffffff'),
+    foreground: pick(foreground, '#1f1f1f'),
+    card: pick(card, '#f6f6f7'),
+    mutedForeground: pick(mutedForeground, '#6b6b70'),
     primary: pick(primary, '#1f6feb'),
     primaryForeground: pick(primaryForeground, '#ffffff'),
-    border: pick(border, 'rgba(11, 40, 51, 0.08)'),
-    input: pick(input, 'rgba(11, 40, 51, 0.14)'),
-    shell: pick(shell, '#ffffff'),
-    destructive: pick(destructive, '#ff3b30'),
+    border: pick(border, 'rgba(0, 0, 0, 0.07)'),
+    input: pick(input, 'rgba(0, 0, 0, 0.12)'),
+    shell: pick(shell, '#f2f2f4'),
+    destructive: pick(destructive, '#e5484d'),
+    secondary: pick(secondary, '#eaeaed'),
+    drawer: pick(drawer, '#f6f6f7'),
+    drawerEdge: pick(drawerEdge, 'rgba(0, 0, 0, 0.1)'),
+    field: pick(field, '#f2f2f4'),
   }
 }
 
@@ -61,6 +73,26 @@ export function withAlpha(color: string, alpha: number): string {
   if (!/^#[0-9a-f]{6}$/i.test(hex)) return color
   const a = Math.round(Math.min(1, Math.max(0, alpha)) * 255)
   return `${hex}${a.toString(16).padStart(2, '0')}`
+}
+
+/**
+ * Колір, змішаний із білим на частку `amount` (0…1): акцент, що читається
+ * на темній плашці («Скасувати» — undo-toast). Не #rrggbb — як є.
+ */
+export function mixWhite(color: string, amount: number): string {
+  let hex = color.trim()
+  if (/^#[0-9a-f]{3}$/i.test(hex)) {
+    hex = `#${[...hex.slice(1)].map((ch) => ch + ch).join('')}`
+  }
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return color
+  const t = Math.min(1, Math.max(0, amount))
+  const mix = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16)
+    return Math.round(v + (255 - v) * t)
+      .toString(16)
+      .padStart(2, '0')
+  })
+  return `#${mix.join('')}`
 }
 
 /** Тема навігації в кольорах застосунку — інакше шапки були б білими й у темній. */

@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { router } from 'expo-router'
-import { ActivityIndicator, RefreshControl, View } from 'react-native'
+import { ActivityIndicator, RefreshControl, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 
 import { EmptyState } from '@/components/empty-state'
 import type { GlyphName } from '@/components/icons/glyph'
+import { CardSkeletonList } from '@/components/jobs/card-skeleton'
 import { JobCard } from '@/components/jobs/job-card'
 import { OrderCard } from '@/components/orders/order-card'
 import {
@@ -12,8 +12,10 @@ import {
   type PageScroll,
   type SwipeTab,
 } from '@/components/swipe-tabs'
+import { usePullRefresh } from '@/components/ui/pull-indicator'
 import { api, errorText } from '@/lib/api'
 import { authClient, roleOf } from '@/lib/auth'
+import { openChat } from '@/lib/dock'
 import { useColors } from '@/lib/theme'
 import type { JobListItem, JobsPage } from '@/shared/jobs'
 import type { OrderListItem, OrdersList, OrderStatus } from '@/shared/orders'
@@ -21,8 +23,7 @@ import type { OrderListItem, OrdersList, OrderStatus } from '@/shared/orders'
 type Tab = 'requests' | 'active' | 'history' | 'done' | 'cancelled'
 
 type Item =
-  | { kind: 'job'; job: JobListItem }
-  | { kind: 'order'; order: OrderListItem }
+  { kind: 'job'; job: JobListItem } | { kind: 'order'; order: OrderListItem }
 
 /** Які стани замовлення лежать у якому розділі. */
 const ORDER_TABS: Record<Exclude<Tab, 'requests'>, OrderStatus[]> = {
@@ -72,23 +73,34 @@ export default function OrdersScreen() {
     (a, b) => jobRank(a) - jobRank(b),
   )
   const live = jobList.filter((j) => j.status === 'OPEN')
-  // Є пропозиції, з яких треба обрати майстра, — крапка на «Заявках».
+  // Є пропозиції, з яких треба обрати майстра, — число «Заявок» акцентом.
   const waiting = live.some((j) => (j.proposalsCount ?? 0) > 0)
   const activeOrders = orders.data?.orders.filter((o) =>
     ORDER_TABS.active.includes(o.status),
   ).length
 
+  // Оновлення, яке людина запустила, потягнувши список (не фонове).
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    Promise.all([orders.refetch(), master ? null : jobs.refetch()]),
+  )
+
   const tabs: SwipeTab<Tab>[] = master
     ? [
-        { key: 'active', label: 'Активні', count: activeOrders },
+        { key: 'active', label: 'Активні', count: activeOrders, accent: true },
         { key: 'done', label: 'Завершені' },
         { key: 'cancelled', label: 'Скасовані' },
       ]
     : [
         // Число — лише живі заявки (шукаємо майстра, є пропозиції): минулі
-        // вже не «ваші заявки зараз».
-        { key: 'requests', label: 'Заявки', count: live.length, dot: waiting },
-        { key: 'active', label: 'Активні', count: activeOrders },
+        // вже не «ваші заявки зараз». Сіре, доки обирати нема з чого.
+        {
+          key: 'requests',
+          label: 'Заявки',
+          count: live.length,
+          accent: waiting,
+        },
+        // Активні — завжди акцентом: там іде справа просто зараз.
+        { key: 'active', label: 'Активні', count: activeOrders, accent: true },
         { key: 'history', label: 'Історія' },
       ]
 
@@ -105,6 +117,7 @@ export default function OrdersScreen() {
         // Роль змінилась (вихід і вхід іншим акаунтом) — розділи інші.
         key={role}
         tabs={tabs}
+        refreshing={refreshing}
         renderPage={(tab, _active, scroll) => {
           const isJobs = tab === 'requests'
           return (
@@ -115,10 +128,8 @@ export default function OrdersScreen() {
               role={role}
               items={itemsOf(tab)}
               query={isJobs ? jobs : orders}
-              onRefresh={() => {
-                void orders.refetch()
-                if (!master) void jobs.refetch()
-              }}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
               more={
                 isJobs
                   ? {
@@ -164,6 +175,7 @@ function Page({
   role,
   items,
   query,
+  refreshing,
   onRefresh,
   more,
 }: {
@@ -176,10 +188,10 @@ function Page({
   query: {
     isPending: boolean
     isError: boolean
-    isRefetching: boolean
     error: unknown
     refetch: () => unknown
   }
+  refreshing: boolean
   onRefresh: () => void
   more?: { loading: boolean; load: () => void }
 }) {
@@ -189,9 +201,15 @@ function Page({
       {...scroll.props}
       data={items}
       keyExtractor={(it) => (it.kind === 'job' ? it.job.id : it.order.id)}
-      contentContainerClassName="grow gap-3 px-4 pb-10"
-      // Зміст стартує під перемикачем, а при прокрутці заходить під нього.
-      contentContainerStyle={{ paddingTop: scroll.padTop }}
+      contentContainerClassName="grow gap-3 px-4"
+      // Зміст стартує під перемикачем, а при прокрутці заходить під нього;
+      // кінець — над панеллю вкладок.
+      contentContainerStyle={{
+        paddingTop: scroll.padTop,
+        paddingBottom: scroll.padBottom,
+        // Порожній розділ — рівно у видимій частині (lib/large-title).
+        marginBottom: scroll.shift,
+      }}
       renderItem={({ item }) =>
         item.kind === 'job' ? (
           <JobCard job={item.job} viewer="client" />
@@ -201,11 +219,15 @@ function Page({
       }
       refreshControl={
         <RefreshControl
-          refreshing={query.isRefetching && !more?.loading}
+          refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={c.mutedForeground}
-          progressViewOffset={scroll.top}
+          {...scroll.refresh}
         />
+      }
+      // Що це за розділ — одним рядком над списком. Порожньому розділу
+      // пояснює сам порожній стан.
+      ListHeaderComponent={
+        items.length ? <Hint tab={tab} master={master} /> : undefined
       }
       onEndReachedThreshold={0.5}
       onEndReached={more?.load}
@@ -216,9 +238,8 @@ function Page({
       }
       ListEmptyComponent={
         query.isPending ? (
-          <View className="flex-1 items-center justify-center py-20">
-            <ActivityIndicator color={c.mutedForeground} />
-          </View>
+          // Перше завантаження — скелетон карток розділу.
+          <CardSkeletonList variant={tab === 'requests' ? 'job' : 'order'} />
         ) : query.isError ? (
           <EmptyState
             icon="warning"
@@ -231,6 +252,28 @@ function Page({
         )
       }
     />
+  )
+}
+
+/** Підказка над списком: що лежить у розділі й чого чекати. */
+const HINT: Record<Tab, string> = {
+  requests:
+    'Заявки, для яких ми шукаємо майстра. Щойно хтось відгукнеться — ви отримаєте сповіщення.',
+  active: 'Майстра обрано — замовлення чекають на виконання або вже в роботі.',
+  history: 'Завершені й скасовані замовлення.',
+  done: 'Виконані замовлення й відгуки клієнтів.',
+  cancelled: 'Скасовані замовлення — для історії.',
+}
+
+function Hint({ tab, master }: { tab: Tab; master: boolean }) {
+  const text =
+    master && tab === 'active'
+      ? 'Замовлення, де клієнт обрав вашу пропозицію.'
+      : HINT[tab]
+  return (
+    <Text className="px-1 text-[13.5px] leading-[19px] text-muted-foreground">
+      {text}
+    </Text>
   )
 }
 
@@ -275,7 +318,7 @@ function Empty({ tab, master }: { tab: Tab; master: boolean }) {
       text={text}
       action={
         tab === 'requests'
-          ? { label: 'Написати Zunor', onPress: () => router.navigate('/') }
+          ? { label: 'Написати Zunor', onPress: () => openChat(false) }
           : undefined
       }
     />

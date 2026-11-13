@@ -33,6 +33,55 @@ export interface OrdersList {
   orders: OrderListItem[]
 }
 
+/** Сторона угоди на екрані замовлення: з телефоном — угода вже є. */
+export interface OrderParty extends OrderPerson {
+  city: string | null
+  phone: string | null
+  avgRating: number
+  reviewsCount: number
+}
+
+export interface OrderReview {
+  id: string
+  rating: number
+  comment: string | null
+  direction: 'CLIENT_TO_MASTER' | 'MASTER_TO_CLIENT'
+  authorId: string
+  createdAt: string
+}
+
+/**
+ * Відповідь GET /api/orders/[id] сайту (web: $lib/server/order-detail,
+ * `orderDetailDto`) — ті самі дані, що на сторінці замовлення сайту.
+ */
+export interface OrderDetail {
+  id: string
+  title: string
+  description: string
+  metadata: Record<string, unknown> | null
+  priceCents: number | null
+  currency: string | null
+  status: OrderStatus
+  createdAt: string
+  updatedAt: string
+  startedAt: string | null
+  completedAt: string | null
+  cancelledAt: string | null
+  cancelReason: string | null
+  cancelledById: string | null
+  clientId: string
+  masterId: string
+  chatId: string | null
+  /** Заявка, з якої вийшло замовлення. */
+  jobId: string | null
+  jobCreatedAt: string | null
+  /** Номер заявки для людей (Job.number). Старий сервер не шле. */
+  jobNumber?: number | null
+  client: OrderParty
+  master: OrderParty & { isVerified: boolean; completedOrders: number }
+  reviews: OrderReview[]
+}
+
 /** Стан замовлення — КОПІЯ підписів web/src/lib/orders/labels.ts. */
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   CREATED: 'Створено',

@@ -1,5 +1,6 @@
 import { Switch, View } from 'react-native'
 
+import { CatScene } from '@/components/mascot/cat-scene'
 import {
   AccentPicker,
   ThemePicker,
@@ -18,15 +19,19 @@ export default function AppearanceSettings() {
 
   return (
     <SettingsScroll>
-      <Section title="Колір акценту">
-        <View className="p-4">
-          <AccentPicker />
-        </View>
-      </Section>
+      {/* Угорі — кіт, що міняє стиль за кружечками кольорів (власник). */}
+      <CatScene scene="dress" />
 
+      {/* Тема — першою (власник), за нею колір акценту. */}
       <Section title="Тема">
         <View className="p-4">
           <ThemePicker />
+        </View>
+      </Section>
+
+      <Section title="Колір акценту">
+        <View className="p-4">
+          <AccentPicker />
         </View>
       </Section>
 
@@ -40,6 +45,10 @@ export default function AppearanceSettings() {
           description="Чіткіший текст і рамки."
           right={
             <Switch
+              // Switch на iOS сам ставить собі alignSelf: 'flex-start' (RN
+              // 0.88) і перебиває центрування рядка — перемикач лип догори
+              // (власник). Свій стиль іде після — повертаємо по центру.
+              style={{ alignSelf: 'center' }}
               value={look.highContrast}
               onValueChange={setHighContrast}
               trackColor={{ true: c.primary, false: c.input }}

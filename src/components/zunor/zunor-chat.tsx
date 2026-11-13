@@ -1,14 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query'
 import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
-import { router, Stack, useLocalSearchParams } from 'expo-router'
+import { router, Stack, useIsFocused, useLocalSearchParams } from 'expo-router'
 import { useEffect, useRef, useState, type ComponentRef } from 'react'
 import {
+  AppState,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -16,23 +18,29 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native'
 import Animated, {
+  Easing,
   FadeInDown,
+  FadeIn,
   FadeInUp,
   FadeOut,
   FadeOutDown,
+  useAnimatedStyle,
 } from 'react-native-reanimated'
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { MenuButton } from '@/components/drawer/menu-button'
-import { HeaderBell } from '@/components/header-bell'
+import { useKeyboardHeight } from '@/components/auth/use-keyboard-height'
 import { Glyph } from '@/components/icons/glyph'
 import { ServiceBadge } from '@/components/icons/service-icon'
 import { Button } from '@/components/ui/button'
+import { RoundButton } from '@/components/ui/round-button'
+import { FooterBlur, HeaderFade } from '@/components/ui/header-fade'
 import { SQUIRCLE, Tile, TINT } from '@/components/ui/tile'
+import { YieldToDrawer } from '@/components/ui/yield-to-drawer'
 import { api, ApiError, errorText } from '@/lib/api'
+import { CLIENT_DOCK, leaveChat, setChatKeepable } from '@/lib/dock'
+import { useRowSwipeGuard } from '@/lib/drawer-swipe'
+import { useInputReset } from '@/lib/input-reset'
 import { useColors } from '@/lib/theme'
 import {
   MAX_PHOTOS,
@@ -81,6 +89,17 @@ const EDIT_PROMPT = 'Добре! Напишіть, що змінити, — я �
 
 /** Ближче до низу, ніж на стільки, — вважаємо, що людина внизу розмови. */
 const NEAR_BOTTOM = 120
+
+/**
+ * Поява кнопки-відповіді: по одній, зліва направо, — проявляється й ледь
+ * підіймається (10 pt), рівно, без пружин. Разом «пух» виглядало різко
+ * (власник).
+ */
+const chipIn = (i: number) =>
+  FadeInDown.duration(340)
+    .delay(60 + Math.min(i, 6) * 70)
+    .easing(Easing.out(Easing.cubic))
+    .withInitialValues({ opacity: 0, transform: [{ translateY: 10 }] })
 
 /**
  * Кнопка «Додати фото» від Zunor приходить мовою розмови, тож — за
@@ -171,11 +190,22 @@ export function ZunorChat() {
 
   const nextId = useRef(0)
   const turn = useRef<AbortController | null>(null)
+  /** Розмову зараз видно (не закрита «✕», не під іншим екраном). */
+  const focused = useIsFocused()
+  const visible = useRef(focused)
+  useEffect(() => {
+    visible.current = focused
+  }, [focused])
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null)
   const inputRef = useRef<ComponentRef<typeof TextInput>>(null)
-  const frame = useRef<ComponentRef<typeof View>>(null)
-  const [frameTop, setFrameTop] = useState(0)
-  const keyboardShown = useKeyboardShown()
+  // Після надсилання поле порожнє, хоч би що тримала клавіатура.
+  const sent = useInputReset(inputRef)
+  /** Висота поля зі згасанням (лежить поверх розмови) — відступ знизу. */
+  const [dock, setDock] = useState(0)
+  const keyboard = useKeyboardHeight()
+  const keyboardSpace = useAnimatedStyle(() => ({
+    height: Math.max(keyboard.get() - insets.bottom, 0),
+  }))
 
   // Розмову покинули — відповідь, яку ніхто не прочитає, не оплачуємо.
   useEffect(() => () => turn.current?.abort(), [])
@@ -192,6 +222,22 @@ export function ZunorChat() {
   }, [toast])
 
   const started = messages.length > 0
+  /** Розмова йде (чи щойно склала заявку) — є що скидати й копіювати. */
+  const chatting = started || Boolean(createdJobId)
+
+  // Закрита «✕» розмова без заявки ще якийсь час відкривається знову
+  // (lib/dock, KEEP_MS); зі складеною заявкою «+» починає нову.
+  useEffect(() => {
+    setChatKeepable(started && !createdJobId)
+  }, [started, createdJobId])
+  // Верхня смуга лежить поверх розмови — зміст відступає на її висоту.
+  const bar = insets.top + 52
+  // Стрічки підказок і кнопок-відповідей: прогорнуті — свайп управо
+  // гортає їх назад, а бічна панель — лише від краю (lib/drawer-swipe).
+  const suggestionsGuard = useRowSwipeGuard(!started && !createdJobId)
+  const chipsGuard = useRowSwipeGuard(
+    chips.length > 0 && !streaming && !createdJobId,
+  )
   const canSend =
     (input.trim().length > 0 || pendingPhotos.length > 0) &&
     uploading === 0 &&
@@ -231,7 +277,9 @@ export function ZunorChat() {
     try {
       assets = await pickPhotos(free)
     } catch {
-      setUploadError('Не вдалося відкрити фото. Дозвольте доступ у налаштуваннях телефона.')
+      setUploadError(
+        'Не вдалося відкрити фото. Дозвольте доступ у налаштуваннях телефона.',
+      )
       return
     }
     // Усі обрані одразу стають «вантажиться» — видно, скільки їх буде.
@@ -311,6 +359,15 @@ export function ZunorChat() {
           { id: zunorId, role: 'zunor', text: final.reply, thinkSeconds },
         ])
       }
+      // Дописав — легке «клацання», якщо розмову саме видно (так попросив
+      // власник).
+      if (
+        Platform.OS !== 'web' &&
+        visible.current &&
+        AppState.currentState === 'active'
+      ) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      }
       if (final.kind === 'message') {
         setChips(final.suggestions ?? [])
       } else {
@@ -346,8 +403,7 @@ export function ZunorChat() {
   function send(text: string) {
     const clean = text.trim()
     const photos = pendingPhotos
-    if ((!clean && !photos.length) || streaming || creating || uploading)
-      return
+    if ((!clean && !photos.length) || streaming || creating || uploading) return
     const next: Msg[] = [
       ...messages,
       {
@@ -363,6 +419,7 @@ export function ZunorChat() {
     setUploadError('')
     setChips([])
     setInput('')
+    sent.reset()
     // Своя репліка — завжди внизу, навіть якщо людина гортала вгору.
     atBottomRef.current = true
     setAtBottom(true)
@@ -444,8 +501,7 @@ export function ZunorChat() {
       void queryClient.invalidateQueries({ queryKey: ['jobs'] })
     } catch (err) {
       const body = err instanceof ApiError ? err.body : null
-      const dup = (body as { duplicate?: { title?: string } } | null)
-        ?.duplicate
+      const dup = (body as { duplicate?: { title?: string } } | null)?.duplicate
       if (err instanceof ApiError && err.status === 409 && dup) {
         setDuplicate({ draft, title: dup.title ?? 'Заявка' })
         return
@@ -457,19 +513,52 @@ export function ZunorChat() {
   }
 
   // Своя верхня смуга замість системної шапки: кругла кнопка меню зліва,
-  // дії з розмовою праворуч (як шапка чату на сайті).
+  // дії з розмовою праворуч (як шапка чату на сайті). Кнопки — круглі, як
+  // у шапці (RoundButton). Смуга лежить ПОВЕРХ розмови з тим самим тлом,
+  // що в шапки (HeaderFade): повідомлення йдуть під неї й плавно
+  // розмиваються до краю екрана, як у Telegram.
   const topBar = (
-    <View style={{ paddingTop: insets.top }} className="bg-background">
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: bar,
+        paddingTop: insets.top,
+        zIndex: 1,
+      }}
+    >
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="h-[52px] flex-row items-center justify-between px-1.5">
+      <HeaderFade height={bar} />
+      <View className="h-[52px] flex-row items-center justify-between px-4">
         <MenuButton />
-        <View className="flex-row items-center">
-          <HeaderBell />
-          <ChatMenu
-            started={started || Boolean(createdJobId)}
-            onReset={newChat}
-            onCopy={() => void copyDialog()}
-          />
+        {/* Лише потрібне (так попросив власник): до розмови — ☰ і «✕»,
+            щойно вона почалась — ще «⋯» з діями над нею. Дзвіночка тут
+            немає: сповіщення — розділ нижньої панелі. */}
+        <View className="flex-row items-center gap-2">
+          {chatting || !CLIENT_DOCK ? (
+            <Animated.View
+              entering={FadeIn.duration(220)}
+              exiting={FadeOut.duration(160)}
+            >
+              <ChatMenu
+                started={chatting}
+                onReset={newChat}
+                onCopy={() => void copyDialog()}
+                slot={CLIENT_DOCK ? 1 : 0}
+              />
+            </Animated.View>
+          ) : null}
+          {/* Нижня панель (прототип, lib/dock): «✕» — розмова їде вниз,
+              під нею — розділ, де людина була востаннє. */}
+          {CLIENT_DOCK ? (
+            <RoundButton
+              icon="close"
+              label="Закрити розмову"
+              onPress={leaveChat}
+            />
+          ) : null}
         </View>
       </View>
       {toast ? (
@@ -499,14 +588,17 @@ export function ZunorChat() {
     return (
       <View className="flex-1 bg-background">
         {topBar}
-        <View className="flex-1 items-center justify-center gap-4 px-8 pb-16">
+        <View
+          className="flex-1 items-center justify-center gap-4 px-8 pb-16"
+          style={{ paddingTop: bar }}
+        >
           <Tile icon="check" tint={TINT.green} size={68} />
           <Text className="text-center text-[26px] font-bold tracking-tight text-foreground">
             Готово!
           </Text>
           <Text className="text-center text-[16px] leading-[22px] text-muted-foreground">
-            Заявку опубліковано — шукаю вам клінера поруч. Пропозиції
-            зʼявляться в «Замовленнях».
+            Заявку опубліковано — шукаю вам клінера поруч. Пропозиції зʼявляться
+            в «Замовленнях».
           </Text>
           <View className="mt-3 w-full gap-2">
             <Button
@@ -533,284 +625,321 @@ export function ZunorChat() {
   return (
     <View className="flex-1 bg-background">
       {topBar}
-      <View
-        ref={frame}
-        // Відступ над клавіатурою рахується від верху вікна — міряємо, де
-        // починається ця частина екрана.
-        onLayout={() =>
-          frame.current?.measureInWindow((_x, y) => setFrameTop(y))
-        }
-        className="flex-1"
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={frameTop}
-          className="flex-1"
-        >
-          {started ? (
-            <View className="flex-1">
-              <ScrollView
-                ref={scroll}
-                onScroll={onScroll}
-                scrollEventThrottle={32}
-                onContentSizeChange={() => {
-                  // Нові рядки тягнуть прокрутку, лише якщо людина внизу:
-                  // інакше відповідь, що друкується, смикала б її, поки
-                  // вона читає вище.
-                  if (atBottomRef.current)
-                    scroll.current?.scrollToEnd({ animated: true })
-                }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
-                contentContainerClassName="gap-5 px-5 pb-4 pt-2"
-              >
-                {messages.map((m) => {
-                  switch (m.role) {
-                    case 'user':
-                      return (
-                        <View
-                          key={m.id}
-                          className="max-w-[85%] gap-1.5 self-end"
-                        >
-                          {m.images?.length ? (
-                            <View className="flex-row flex-wrap justify-end gap-1.5">
-                              {m.images.map((url) => (
-                                <Image
-                                  key={url}
-                                  source={url}
-                                  contentFit="cover"
-                                  style={{
-                                    width: 96,
-                                    height: 96,
-                                    borderRadius: 18,
-                                    borderCurve: 'continuous',
-                                  }}
-                                />
-                              ))}
-                            </View>
-                          ) : null}
-                          {m.text ? (
-                            <View
-                              className="self-end rounded-[22px] bg-secondary px-4 py-2.5"
-                              style={SQUIRCLE}
-                            >
-                              <Text className="text-[16px] leading-[22px] text-foreground">
-                                {m.text}
+      <View className="flex-1">
+        <View className="flex-1">
+          {/* Розмова й поле поверх неї; низ цього блоку їде за клавіатурою
+              (розпірка нижче), поле — absolute до його низу. */}
+          <View className="flex-1">
+            {started ? (
+              <View className="flex-1">
+                <ScrollView
+                  ref={scroll}
+                  showsVerticalScrollIndicator={false}
+                  onScroll={onScroll}
+                  scrollEventThrottle={32}
+                  // Вікно розмови міняє висоту з клавіатурою (розпірка
+                  // під полем) — щокадру. Людина була внизу — тримаємо
+                  // низ: розмова їде вгору разом із клавіатурою, а не
+                  // ховається під неї (власник), і так само назад.
+                  onLayout={() => {
+                    if (atBottomRef.current)
+                      scroll.current?.scrollToEnd({ animated: false })
+                  }}
+                  onContentSizeChange={() => {
+                    // Нові рядки тягнуть прокрутку, лише якщо людина внизу:
+                    // інакше відповідь, що друкується, смикала б її, поки
+                    // вона читає вище.
+                    if (atBottomRef.current)
+                      scroll.current?.scrollToEnd({ animated: true })
+                  }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="interactive"
+                  contentContainerClassName="gap-5 px-5"
+                  // Знизу — на висоту поля й ще трохи повітря (власник
+                  // попросив відсунути останню відповідь від поля): останній
+                  // рядок стоїть над ним чітко, а прокручене заходить під
+                  // нього.
+                  contentContainerStyle={{
+                    paddingTop: bar + 8,
+                    paddingBottom: dock + 20,
+                  }}
+                >
+                  {messages.map((m) => {
+                    switch (m.role) {
+                      case 'user':
+                        return (
+                          <View
+                            key={m.id}
+                            className="max-w-[85%] gap-1.5 self-end"
+                          >
+                            {m.images?.length ? (
+                              <View className="flex-row flex-wrap justify-end gap-1.5">
+                                {m.images.map((url) => (
+                                  <Image
+                                    key={url}
+                                    source={url}
+                                    contentFit="cover"
+                                    style={{
+                                      width: 96,
+                                      height: 96,
+                                      borderRadius: 18,
+                                      borderCurve: 'continuous',
+                                    }}
+                                  />
+                                ))}
+                              </View>
+                            ) : null}
+                            {m.text ? (
+                              <View
+                                className="self-end rounded-[22px] bg-secondary px-4 py-2.5"
+                                style={SQUIRCLE}
+                              >
+                                <Text className="text-[16px] leading-[22px] text-foreground">
+                                  {m.text}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )
+                      case 'zunor':
+                        return (
+                          <View key={m.id} className="gap-1.5">
+                            {m.thinkSeconds > 0 ? (
+                              <Text className="text-[13px] text-muted-foreground">
+                                Думав {m.thinkSeconds} с
                               </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      )
-                    case 'zunor':
-                      return (
-                        <View key={m.id} className="gap-1.5">
-                          {m.thinkSeconds > 0 ? (
-                            <Text className="text-[13px] text-muted-foreground">
-                              Думав {m.thinkSeconds} с
+                            ) : null}
+                            <MessageText text={m.text} />
+                          </View>
+                        )
+                      case 'notice':
+                        return (
+                          <View key={m.id} className="items-center gap-1 py-1">
+                            <Text className="text-center text-[14px] text-muted-foreground">
+                              {m.text}
                             </Text>
-                          ) : null}
-                          <MessageText text={m.text} />
-                        </View>
-                      )
-                    case 'notice':
-                      return (
-                        <View key={m.id} className="items-center gap-1 py-1">
-                          <Text className="text-center text-[14px] text-muted-foreground">
-                            {m.text}
-                          </Text>
-                          {m.retry && !streaming ? (
-                            <Pressable onPress={retry} hitSlop={8}>
-                              <Text className="text-[14px] font-semibold text-primary">
-                                Спробувати ще
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      )
-                    case 'draft':
-                      return (
-                        <DraftCard
-                          key={m.id}
-                          draft={m.draft}
-                          photos={sentPhotos.map((p) => p.url)}
-                          creating={creating}
-                          duplicateTitle={
-                            duplicate?.draft === m.draft
-                              ? duplicate.title
-                              : null
-                          }
-                          onCreate={() => createJob(m.draft)}
-                          onEdit={requestEdit}
-                        />
-                      )
-                  }
-                })}
-
-                {waiting ? <Thinking /> : null}
-              </ScrollView>
-
-              {/* «Донизу» — виїжджає з-під поля, коли людина відгорнула
-                  розмову вгору. */}
-              {!atBottom ? (
-                <Animated.View
-                  entering={FadeInDown.duration(180)}
-                  exiting={FadeOutDown.duration(140)}
-                  style={{ position: 'absolute', bottom: 12, alignSelf: 'center' }}
-                >
-                  <Pressable
-                    onPress={() => scrollToEnd()}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="До кінця розмови"
-                    className="size-10 items-center justify-center rounded-full bg-shell active:opacity-70"
-                    style={{ boxShadow: '0 4px 14px rgba(0, 0, 0, 0.18)' }}
-                  >
-                    <Glyph
-                      name="down"
-                      size={16}
-                      color={c.foreground}
-                      weight="semibold"
-                    />
-                  </Pressable>
-                </Animated.View>
-              ) : null}
-            </View>
-          ) : (
-            // Порожня розмова: лише знак по центру — як у застосунках ІІ.
-            <Pressable
-              onPress={Keyboard.dismiss}
-              accessible={false}
-              className="flex-1 items-center justify-center gap-3 pb-6"
-            >
-              {/* Знак кліпає, як на сайті; і він, і назва — кольору
-                  тексту: чорні у світлій темі, білі в темній. */}
-              <ZunorBlinkMark size={48} />
-              <Text className="text-[40px] font-semibold tracking-tight text-foreground">
-                Zunor
-              </Text>
-            </Pressable>
-          )}
-
-          {!started ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              className="grow-0"
-              contentContainerClassName="gap-2.5 px-4 pb-3"
-            >
-              {SUGGESTIONS.map((s) => (
-                <Pressable
-                  key={s.lead + s.rest}
-                  onPress={() => send(`${s.lead} ${s.rest}`)}
-                  accessibilityRole="button"
-                  className="w-[150px] gap-3 rounded-[22px] bg-shell p-3.5 active:opacity-70"
-                  style={SQUIRCLE}
-                >
-                  <ServiceBadge service={s.service} size={36} />
-                  <Text
-                    numberOfLines={2}
-                    className="text-[15px] leading-[20px] text-muted-foreground"
-                  >
-                    <Text className="font-semibold text-foreground">
-                      {s.lead}
-                    </Text>{' '}
-                    {s.rest}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
-
-          <SafeAreaView
-            // Над смужкою «додому»; з клавіатурою відступ дав би порожню
-            // смугу між нею й полем.
-            edges={keyboardShown ? [] : ['bottom']}
-            style={{ backgroundColor: c.background }}
-          >
-            <View className="gap-2 pb-2 pt-1">
-              {uploadError ? (
-                <Text className="px-5 text-[13px] text-destructive">
-                  {uploadError}
-                </Text>
-              ) : null}
-              <View className="px-3">
-                <Composer
-                  inputRef={inputRef}
-                  value={input}
-                  onChange={setInput}
-                  onSend={() => send(input)}
-                  onStop={stop}
-                  streaming={streaming}
-                  canSend={canSend}
-                  placeholder={
-                    started ? 'Напишіть Zunor…' : 'Що потрібно прибрати?'
-                  }
-                  photos={pendingPhotos}
-                  uploading={uploading}
-                  onAddPhoto={() => void addPhotos()}
-                  onRemovePhoto={(i) =>
-                    setPendingPhotos((p) => p.filter((_, idx) => idx !== i))
-                  }
-                />
-              </View>
-
-              {/* Кнопки-відповіді Zunor — ПІД полем, як на сайті. */}
-              {zunorChips ? (
-                <Animated.View entering={FadeInUp.duration(180)}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerClassName="gap-2 px-3"
-                  >
-                    {chips.map((chip) => (
-                      <Pressable
-                        key={chip}
-                        onPress={() => pickChip(chip)}
-                        accessibilityRole="button"
-                        className="flex-row items-center gap-1.5 rounded-full bg-shell px-4 py-2.5 active:opacity-70"
-                      >
-                        {isAddPhotoChip(chip) ? (
-                          <Glyph
-                            name="photo"
-                            size={16}
-                            color={c.foreground}
-                            weight="medium"
+                            {m.retry && !streaming ? (
+                              <Pressable onPress={retry} hitSlop={8}>
+                                <Text className="text-[14px] font-semibold text-primary">
+                                  Спробувати ще
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        )
+                      case 'draft':
+                        return (
+                          <DraftCard
+                            key={m.id}
+                            draft={m.draft}
+                            photos={sentPhotos.map((p) => p.url)}
+                            creating={creating}
+                            duplicateTitle={
+                              duplicate?.draft === m.draft
+                                ? duplicate.title
+                                : null
+                            }
+                            onCreate={() => createJob(m.draft)}
+                            onEdit={requestEdit}
                           />
-                        ) : null}
-                        <Text className="text-[15px] font-medium text-foreground">
-                          {chip}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </Animated.View>
-              ) : null}
+                        )
+                    }
+                  })}
+
+                  {waiting ? <Thinking /> : null}
+                </ScrollView>
+              </View>
+            ) : (
+              // Порожня розмова: лише знак по центру — як у застосунках ІІ.
+              <Pressable
+                onPress={Keyboard.dismiss}
+                accessible={false}
+                className="flex-1 items-center justify-center gap-3 pb-6"
+                style={{ paddingTop: bar }}
+              >
+                {/* Знак кліпає, як на сайті; і він, і назва — кольору
+                  тексту: чорні у світлій темі, білі в темній. */}
+                <ZunorBlinkMark size={48} />
+                <Text className="text-[40px] font-semibold tracking-tight text-foreground">
+                  Zunor
+                </Text>
+              </Pressable>
+            )}
+
+            {!started ? (
+              <YieldToDrawer>
+                <ScrollView
+                  horizontal
+                  {...suggestionsGuard}
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  className="grow-0"
+                  contentContainerClassName="gap-2.5 px-4 pb-3"
+                >
+                  {SUGGESTIONS.map((s) => (
+                    <Pressable
+                      key={s.lead + s.rest}
+                      onPress={() => send(`${s.lead} ${s.rest}`)}
+                      accessibilityRole="button"
+                      className="w-[150px] gap-3 rounded-[22px] bg-shell p-3.5 active:opacity-70"
+                      style={SQUIRCLE}
+                    >
+                      <ServiceBadge service={s.service} size={36} />
+                      <Text
+                        numberOfLines={2}
+                        className="text-[15px] leading-[20px] text-muted-foreground"
+                      >
+                        <Text className="font-semibold text-foreground">
+                          {s.lead}
+                        </Text>{' '}
+                        {s.rest}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </YieldToDrawer>
+            ) : null}
+            {/* Поки розмови немає — місце під полем: підказки стоять над
+              ним, а не під ним. */}
+            {!started ? <View style={{ height: dock }} /> : null}
+
+            {/* Поле — ПОВЕРХ розмови (власник): над ним зміст чіткий до
+              самого краю — жодного згасання, — а прокручене заходить ПІД
+              поле й там розмивається й тоне, сильніше до низу екрана
+              (FooterBlur — дзеркало тла шапки). Без розмови під полем
+              нічого немає — тло звичайне. */}
+            <View
+              pointerEvents="box-none"
+              onLayout={(e) => setDock(e.nativeEvent.layout.height)}
+              style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+            >
+              <SafeAreaView
+                // Над смужкою «додому» — ЗАВЖДИ: з клавіатурою цей відступ
+                // лягає на її верх (розпірка нижче на нього коротша).
+                // Перемикати його з клавіатурою не можна — 34 pt
+                // додавались одним махом, і поле стрибало (власник).
+                edges={['bottom']}
+              >
+                {started ? (
+                  <FooterBlur />
+                ) : (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      StyleSheet.absoluteFill,
+                      { backgroundColor: c.background },
+                    ]}
+                  />
+                )}
+                <View className="gap-2 pb-2 pt-1">
+                  {uploadError ? (
+                    <Text className="px-5 text-[13px] text-destructive">
+                      {uploadError}
+                    </Text>
+                  ) : null}
+                  {/* Кнопки-відповіді Zunor — НАД полем (власник): під ним
+                  їх ховала клавіатура й смужка «додому». */}
+                  {zunorChips ? (
+                    <Animated.View exiting={FadeOut.duration(200)}>
+                      <YieldToDrawer>
+                        <ScrollView
+                          horizontal
+                          {...chipsGuard}
+                          showsHorizontalScrollIndicator={false}
+                          keyboardShouldPersistTaps="handled"
+                          contentContainerClassName="gap-2 px-3"
+                        >
+                          {chips.map((chip, i) => (
+                            <Animated.View key={chip} entering={chipIn(i)}>
+                              <Pressable
+                                onPress={() => pickChip(chip)}
+                                accessibilityRole="button"
+                                className="flex-row items-center gap-1.5 rounded-full bg-shell px-4 py-2.5 active:opacity-70"
+                              >
+                                {isAddPhotoChip(chip) ? (
+                                  <Glyph
+                                    name="photo"
+                                    size={16}
+                                    color={c.foreground}
+                                    weight="medium"
+                                  />
+                                ) : null}
+                                <Text className="text-[15px] font-medium text-foreground">
+                                  {chip}
+                                </Text>
+                              </Pressable>
+                            </Animated.View>
+                          ))}
+                        </ScrollView>
+                      </YieldToDrawer>
+                    </Animated.View>
+                  ) : null}
+
+                  <View className="px-3">
+                    <Composer
+                      inputRef={inputRef}
+                      value={input}
+                      onChange={(value) => {
+                        // Клавіатура повернула щойно надісланий текст.
+                        if (!sent.isEcho(value)) setInput(value)
+                      }}
+                      onSend={() => send(input)}
+                      onStop={stop}
+                      streaming={streaming}
+                      canSend={canSend}
+                      placeholder={
+                        started ? 'Напишіть Zunor…' : 'Що потрібно прибрати?'
+                      }
+                      photos={pendingPhotos}
+                      uploading={uploading}
+                      onAddPhoto={() => void addPhotos()}
+                      onRemovePhoto={(i) =>
+                        setPendingPhotos((p) => p.filter((_, idx) => idx !== i))
+                      }
+                    />
+                  </View>
+                </View>
+              </SafeAreaView>
             </View>
-          </SafeAreaView>
-        </KeyboardAvoidingView>
+
+            {/* «Донизу» — виїжджає з-під поля, коли людина відгорнула
+                  розмову вгору; стоїть просто над полем. */}
+            {started && !atBottom ? (
+              <Animated.View
+                entering={FadeInDown.duration(180)}
+                exiting={FadeOutDown.duration(140)}
+                style={{
+                  position: 'absolute',
+                  bottom: dock + 10,
+                  alignSelf: 'center',
+                }}
+              >
+                <Pressable
+                  onPress={() => scrollToEnd()}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="До кінця розмови"
+                  className="size-10 items-center justify-center rounded-full bg-shell active:opacity-70"
+                  style={{ boxShadow: '0 4px 14px rgba(0, 0, 0, 0.18)' }}
+                >
+                  <Glyph
+                    name="down"
+                    size={16}
+                    color={c.foreground}
+                    weight="semibold"
+                  />
+                </Pressable>
+              </Animated.View>
+            ) : null}
+          </View>
+        </View>
+        {/* Розпірка під клавіатуру: росте й меншає разом із нею (та сама
+            тривалість і крива, useKeyboardHeight) — поле їде за
+            клавіатурою рівно в обидва боки. Не KeyboardAvoidingView: з ним
+            поле, коли клавіатура ховалась, падало ривком (власник). На
+            смужку «додому» коротша — той відступ уже є під полем. */}
+        <Animated.View pointerEvents="none" style={keyboardSpace} />
       </View>
     </View>
   )
-}
-
-function useKeyboardShown(): boolean {
-  const [shown, setShown] = useState(false)
-  useEffect(() => {
-    const ios = Platform.OS === 'ios'
-    const show = Keyboard.addListener(
-      ios ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setShown(true),
-    )
-    const hide = Keyboard.addListener(
-      ios ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setShown(false),
-    )
-    return () => {
-      show.remove()
-      hide.remove()
-    }
-  }, [])
-  return shown
 }

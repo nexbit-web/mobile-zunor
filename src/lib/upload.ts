@@ -67,6 +67,53 @@ export async function uploadAvatar(
   return photo
 }
 
+/**
+ * Приклад роботи майстра — у хмару, як на сайті (portfolio-uploader:
+ * теку заявок користувача). У профіль його пише форма своїм «Зберегти»
+ * (POST /api/profile/master), а не це завантаження.
+ */
+export function uploadPortfolioPhoto(
+  asset: ImagePicker.ImagePickerAsset,
+): Promise<Photo> {
+  return uploadImage(asset, 'job')
+}
+
+/**
+ * Прибрати з хмари приклад роботи, який так і не зберегли (форму
+ * скасували): сервер стирає файл, лише якщо він у теці цієї людини.
+ */
+export async function discardPortfolioPhoto(publicId: string): Promise<void> {
+  await api('/api/user/media', {
+    method: 'POST',
+    json: { kind: 'portfolio-remove', publicId },
+  })
+}
+
+/** Вкладення повідомлення — те, що чекає POST /api/chats/[id]/messages. */
+export interface ChatAttachment {
+  url: string
+  publicId: string
+  mimeType: string
+  size: number
+  name: string
+}
+
+/**
+ * Фото в чат — у теку чатів користувача (`kind: 'chat'`, як
+ * message-composer на сайті); сервер приймає лише посилання з нашої хмари.
+ */
+export async function uploadChatPhoto(
+  asset: ImagePicker.ImagePickerAsset,
+): Promise<ChatAttachment> {
+  const photo = await uploadImage(asset, 'chat')
+  return {
+    ...photo,
+    mimeType: asset.mimeType ?? 'image/jpeg',
+    size: asset.fileSize ?? 0,
+    name: asset.fileName ?? 'photo.jpg',
+  }
+}
+
 /** Прибрати фото профілю — і з профілю, і з хмари (вирішує сервер). */
 export async function removeAvatar(): Promise<void> {
   await api('/api/user/media', {
@@ -77,7 +124,7 @@ export async function removeAvatar(): Promise<void> {
 
 async function uploadImage(
   asset: ImagePicker.ImagePickerAsset,
-  kind: 'job' | 'avatar',
+  kind: 'job' | 'avatar' | 'chat',
 ): Promise<Photo> {
   if (asset.fileSize && asset.fileSize > MAX_BYTES) {
     throw new UploadError('Фото більше за 10 МБ')

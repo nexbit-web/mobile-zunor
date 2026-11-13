@@ -58,3 +58,35 @@ export interface AssistantData {
   services: { key: string; label: string; icon: string }[]
   limits: { about: number; objectNote: number; maxObjects: number }
 }
+
+/** GET /api/me/master-profile — анкета майстра (loadMasterProfileForm). */
+export interface MasterProfileData {
+  user: {
+    name: string | null
+    email: string
+    username: string | null
+    phone: string | null
+    avatar: string | null
+    avatarPublicId: string | null
+    city: string | null
+    district: string | null
+    role: string
+  }
+  /** null — анкети ще немає. */
+  master: {
+    categories: string[]
+    travelRadiusKm: number | null
+    hasVehicle: boolean | null
+    crew: 'SOLO' | 'TEAM' | 'COMPANY' | null
+    /** Уміння за категоріями: { [slug]: … }. */
+    skills: Record<string, unknown>
+    description: string
+    portfolioImages: string[]
+    portfolioImagesPublicIds: string[]
+    verificationStatus: 'NONE' | 'PENDING' | 'VERIFIED' | 'REJECTED'
+    verificationRejectReason: string | null
+  } | null
+  categories: { slug: string; name: string }[]
+  cities: { slug: string; name: string }[]
+  districts: ProfileData['districts']
+}

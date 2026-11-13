@@ -6,11 +6,7 @@ import { pluralUk } from './format'
 import { formatPrice } from './orders'
 
 export type JobStatus =
-  | 'OPEN'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'EXPIRED'
+  'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED'
 
 /** Картка в списку: GET /api/jobs/feed?view=mine|feed. */
 export interface JobListItem {
@@ -43,22 +39,139 @@ export interface JobsPage {
 }
 
 /** GET /api/jobs/[id]. */
+/** Пропозиція майстра — як віддає GET /api/jobs/[id] (job-detail на сайті). */
+export interface JobProposal {
+  id: string
+  message: string
+  priceCents: number
+  estimatedDays: number
+  /** SENT · ACCEPTED · REJECTED · WITHDRAWN */
+  status: string
+  createdAt: string
+  /** Топ за тими самими вагами, що й розсилка (лише власникові). */
+  recommended?: boolean
+  /** Слот новачку — щоб нові майстри мали шанс (лише власникові). */
+  isNew?: boolean
+  master: {
+    id: string
+    name: string | null
+    username: string | null
+    avatar: string | null
+    avgRating: number
+    reviewsCount: number
+  }
+}
+
+/**
+ * GET /api/jobs/[id]. Поля з позначкою «нове» сайт віддає з
+ * листопада 2026 — до деплою їх немає, екран без них просто коротший.
+ */
 export interface JobDetail {
   job: {
     id: string
+    /**
+     * Номер для людей (Job.number на сайті): цифрами, з 100001 — за ним
+     * підтримка знаходить заявку. Старий сервер не шле.
+     */
+    number?: number
     title: string
     description: string | null
     status: JobStatus
     proposalsCount: number
     attachments: string[]
     createdAt: string
+    budgetMinCents: number | null
+    budgetMaxCents: number | null
+    currency: string
+    viewsCount: number
+    expiresAt: string
+    /** нове */
+    metadata?: unknown
+    /** нове: обсяг роботи 1–10 */
+    effort?: number | null
+    /** нове */
+    editedAt?: string | null
+    /** нове: назва міста */
+    cityName?: string
+    /** нове: район (не адреса) і відстань від району глядача */
+    place?: { district: string | null; distanceKm: number | null }
     client: {
       name: string | null
+      avatar?: string | null
       avgRating: number
       reviewsCount: number
+      /** нове */
+      createdAt?: string
     }
   }
   isOwner: boolean
+  /** нове */
+  isMaster?: boolean
+  /** нове: власникові — усі, майстрові — його власна */
+  proposals?: JobProposal[]
+  /** нове */
+  canPropose?: boolean
+  /** нове */
+  cantProposeReason?: string | null
+}
+
+// ─── КОПІЇ з web/src/lib/components/jobs/display.ts і categories/effort.ts ───
+
+/** «Невелике / Середнє / Велике / Дуже велике прибирання» за балом 1–10. */
+export function effortLabel(effort: number | null | undefined): string {
+  if (!effort) return ''
+  const tier =
+    effort <= 3
+      ? 'Невелике'
+      : effort <= 6
+        ? 'Середнє'
+        : effort <= 8
+          ? 'Велике'
+          : 'Дуже велике'
+  return `${tier} прибирання`
+}
+
+/** Обсяг одним словом для таблиці: «Невеликий», «Середній», «Великий». */
+export function effortSize(effort: number | null | undefined): string {
+  if (!effort) return ''
+  if (effort <= 3) return 'Невеликий'
+  if (effort <= 6) return 'Середній'
+  if (effort <= 8) return 'Великий'
+  return 'Дуже великий'
+}
+
+/** Скільки лишилось до закінчення заявки: «5 дн», «3 год», «< 1 год». */
+export function expiresIn(iso: string): string {
+  const diff = new Date(iso).getTime() - Date.now()
+  if (diff <= 0) return 'Прострочено'
+  const days = Math.floor(diff / (24 * 60 * 60_000))
+  const hr = Math.floor(diff / (60 * 60_000))
+  if (days >= 1) return `${days} дн`
+  if (hr >= 1) return `${hr} год`
+  return '< 1 год'
+}
+
+/** «бер. 2025 р.» — з якого часу людина на Zunor. */
+export function memberSince(iso: string): string {
+  return new Date(iso).toLocaleDateString('uk-UA', {
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+/** «за 1 день», «за 3 дні». */
+export function formatDays(n: number): string {
+  return `${n} ${pluralUk(n, 'день', 'дні', 'днів')}`
+}
+
+const PROPOSAL_STATUS: Record<string, string> = {
+  SENT: 'Очікує',
+  ACCEPTED: 'Прийнято',
+  REJECTED: 'Відхилено',
+  WITHDRAWN: 'Відкликано',
+}
+export function proposalStatusLabel(s: string): string {
+  return PROPOSAL_STATUS[s] ?? s
 }
 
 /**

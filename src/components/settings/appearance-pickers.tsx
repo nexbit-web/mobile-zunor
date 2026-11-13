@@ -10,7 +10,17 @@ import {
 } from '@/lib/appearance'
 import { useColors } from '@/lib/theme'
 
-/** Кружки кольорів, як палітра на сайті; під ними — назва обраного. */
+/**
+ * «Чорно-білий» — сірою плиткою, як на сайті: чорна зникла б на темному
+ * тлі, біла — на світлому. Рамка обраної — кольору самого акценту.
+ */
+const MONO_SWATCH = '#545b66'
+
+/**
+ * Плитки кольорів, як палітра на сайті (accent-picker.svelte): квадратики
+ * з легким заокругленням, обрана — з рамкою свого кольору через проміжок
+ * і галочкою. Під ними — назва обраного.
+ */
 export function AccentPicker() {
   const { accent } = useAppearance()
   const tone = useColorScheme() === 'dark' ? 'dark' : 'light'
@@ -21,8 +31,8 @@ export function AccentPicker() {
       <View className="flex-row flex-wrap justify-between gap-y-3">
         {ACCENTS.map((a) => {
           const on = a.id === accent
-          const fill = a.color[tone]
-          const tick = 'foreground' in a ? a.foreground[tone] : '#ffffff'
+          const ring = a.color[tone]
+          const fill = a.id === 'mono' ? MONO_SWATCH : ring
           return (
             <Pressable
               key={a.id}
@@ -31,19 +41,27 @@ export function AccentPicker() {
               aria-checked={on}
               aria-label={a.label}
               hitSlop={4}
-              // 5 у ряд: (ширина − відступи) / 5 — кружок 40 + кільце.
+              // 5 у ряд: (ширина − відступи) / 5 — плитка 42 + рамка.
               className="w-[19%] items-center"
             >
               <View
-                className="size-[48px] items-center justify-center rounded-full border-2"
-                style={{ borderColor: on ? fill : 'transparent' }}
+                className="size-[50px] items-center justify-center rounded-[13px] border-2"
+                style={{
+                  borderColor: on ? ring : 'transparent',
+                  borderCurve: 'continuous',
+                }}
               >
                 <View
-                  className="size-[38px] items-center justify-center rounded-full"
-                  style={{ backgroundColor: fill }}
+                  className="size-[42px] items-center justify-center rounded-[9px]"
+                  style={{ backgroundColor: fill, borderCurve: 'continuous' }}
                 >
                   {on ? (
-                    <Icon name="check" size={20} color={tick} strokeWidth={2.4} />
+                    <Icon
+                      name="check"
+                      size={18}
+                      color="#ffffff"
+                      strokeWidth={2.8}
+                    />
                   ) : null}
                 </View>
               </View>
@@ -113,8 +131,8 @@ export function ThemePicker() {
 // Мініатюра — у СВОЇХ кольорах, а не в увімкненій темі (як на сайті).
 // Значення — з global.css: фон, картка, лінія.
 const PREVIEW = {
-  light: { bg: '#f2f2f7', card: '#ffffff', line: '#e5e5ea' },
-  dark: { bg: '#000000', card: '#1c1c1e', line: '#3a3a3c' },
+  light: { bg: '#ffffff', card: '#f6f6f7', line: '#e2e2e5' },
+  dark: { bg: '#141414', card: '#222222', line: '#3a3a3a' },
 } as const
 
 function Preview({ tone, accent }: { tone: 'light' | 'dark'; accent: string }) {

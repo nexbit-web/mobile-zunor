@@ -13,7 +13,9 @@ import {
   View,
 } from 'react-native'
 
+import { GoogleTile } from '@/components/icons/brand-tiles'
 import { Glyph } from '@/components/icons/glyph'
+import { CatScene } from '@/components/mascot/cat-scene'
 import { queryClient } from '@/components/providers'
 import {
   ActionRow,
@@ -26,8 +28,10 @@ import {
   TINT,
 } from '@/components/settings/list'
 import { Button } from '@/components/ui/button'
+import { GlowButton } from '@/components/ui/glow-button'
 import { api, errorText } from '@/lib/api'
 import { authClient } from '@/lib/auth'
+import { forgetPush } from '@/lib/push'
 import { useColors } from '@/lib/theme'
 import type { SecurityData } from '@/shared/settings'
 
@@ -43,9 +47,21 @@ export default function SecuritySettings() {
     queryFn: () => api<SecurityData>('/api/me/security'),
   })
   return (
-    <QueryGate query={query}>
+    <QueryGate
+      query={query}
+      // Зміна пароля (3 поля й кнопка), способи входу, видалення акаунта.
+      skeleton={[
+        { rows: 3, tiles: false },
+        'button',
+        { rows: 3 },
+        { rows: 1, title: false },
+      ]}
+    >
       {(data) => (
         <SettingsScroll>
+          {/* Угорі — кіт-грабіжник, що не може відімкнути замок (власник). */}
+          <CatScene scene="lock" />
+
           {data.hasPassword ? (
             <PasswordForm />
           ) : (
@@ -53,7 +69,12 @@ export default function SecuritySettings() {
           )}
 
           <Section title="Способи входу">
-            <Row icon="mail" tint={TINT.blue} label="Пошта" value={data.email} />
+            <Row
+              icon="mail"
+              tint={TINT.blue}
+              label="Пошта"
+              value={data.email}
+            />
             <Row
               icon="key"
               tint={TINT.gray}
@@ -71,19 +92,6 @@ export default function SecuritySettings() {
         </SettingsScroll>
       )}
     </QueryGate>
-  )
-}
-
-function GoogleTile() {
-  return (
-    <View
-      className="size-[30px] items-center justify-center rounded-[8px] bg-white"
-      style={{ borderCurve: 'continuous' }}
-    >
-      <Text className="text-[17px] font-bold" style={{ color: '#4285f4' }}>
-        G
-      </Text>
-    </View>
   )
 }
 
@@ -207,9 +215,13 @@ function PasswordForm() {
           }
         />
       </Section>
-      <Button onPress={submit} disabled={!valid} loading={saving}>
-        Змінити пароль
-      </Button>
+      {/* Головна дія екрана — «світна» капсула, як «Подати пропозицію». */}
+      <GlowButton
+        label="Змінити пароль"
+        onPress={submit}
+        disabled={!valid}
+        loading={saving}
+      />
     </View>
   )
 }
@@ -337,8 +349,10 @@ function DeleteDialog({
       setDeleting(false)
       return
     }
-    // Акаунт уже знеособлено на сервері, сесії відкликані — лишилось
-    // прибрати сліди на пристрої. Вихід перекине на екран входу.
+    // Акаунт уже знеособлено на сервері, сесії й пристрої для push
+    // відкликані — лишилось прибрати сліди на пристрої. Вихід перекине на
+    // екран входу.
+    forgetPush()
     await authClient.signOut().catch(() => {})
     queryClient.clear()
     Alert.alert('Акаунт видалено', 'Дякуємо, що були з нами.')
@@ -415,7 +429,10 @@ function DeleteDialog({
               onPress={remove}
               disabled={!matches || deleting}
               accessibilityRole="button"
-              accessibilityState={{ disabled: !matches || deleting, busy: deleting }}
+              accessibilityState={{
+                disabled: !matches || deleting,
+                busy: deleting,
+              }}
               className={`h-[50px] flex-1 items-center justify-center rounded-[14px] bg-destructive active:opacity-85 ${
                 !matches || deleting ? 'opacity-45' : ''
               }`}

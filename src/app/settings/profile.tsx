@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Stack } from 'expo-router'
+import { router, Stack, useLocalSearchParams } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
@@ -10,21 +10,23 @@ import {
   AreaField,
   FieldRow,
   Footnote,
-  HeaderPill,
   QueryGate,
   Row,
   Section,
   SettingsScroll,
   TINT,
 } from '@/components/settings/list'
+import { MasterProfile } from '@/components/settings/master-profile'
 import { PickerSheet } from '@/components/settings/picker-sheet'
 import { useAvatarEditor } from '@/components/settings/use-avatar-editor'
 import { Avatar } from '@/components/ui/avatar'
+import { HeaderPill } from '@/components/ui/header-pill'
+import { RoundButton } from '@/components/ui/round-button'
 import { api, errorText } from '@/lib/api'
-import { authClient } from '@/lib/auth'
+import { authClient, roleOf } from '@/lib/auth'
 import { SITE_URL } from '@/lib/config'
 import { formatPhone, normalizePhone, phoneValid } from '@/shared/phone'
-import type { ProfileData } from '@/shared/settings'
+import type { MasterProfileData, ProfileData } from '@/shared/settings'
 
 // Межі — як на сервері (web/src/lib/server/profile.ts): там перевіряється
 // все повторно, тут — лише щоб людина побачила помилку до запиту.
@@ -35,20 +37,57 @@ const BIO_MAX = 922
 /**
  * Профіль замовника — як у Telegram: спершу просто дані (фото, імʼя,
  * телефон, місто, «про вас»), а «Змінити» в шапці відкриває ту саму
- * форму, що в налаштуваннях сайту, і саме стає «Зберегти». «Скасувати»
- * зліва — повернути як було.
+ * форму, що в налаштуваннях сайту, і саме стає «Зберегти». Кругла «✕»
+ * зліва (замість слова «Скасувати») — повернути як було.
  *
  * Фото зберігається одразу (як на сайті). Незаповнений профіль (без
  * onboarded) відкривається одразу формою: показувати ще нічого, а
  * сервер поставить onboarded після повної перевірки.
  */
 export default function ProfileSettings() {
+  const { data: session } = authClient.useSession()
+  return roleOf(session?.user) === 'MASTER' ? (
+    <MasterProfileSettings />
+  ) : (
+    <ClientProfileSettings />
+  )
+}
+
+function ClientProfileSettings() {
   const query = useQuery({
     queryKey: ['me', 'profile'],
     queryFn: () => api<ProfileData>('/api/me/profile'),
   })
   return (
-    <QueryGate query={query}>{(data) => <Profile data={data} />}</QueryGate>
+    <QueryGate
+      query={query}
+      // Фото й імʼя, контакти, де живе, «про вас».
+      skeleton={[
+        'profile',
+        { rows: 1 },
+        { rows: 2 },
+        { rows: 1, tiles: false },
+      ]}
+    >
+      {(data) => <Profile data={data} />}
+    </QueryGate>
+  )
+}
+
+/** Майстрові — уся анкета, як на сайті (components/settings/master-profile). */
+function MasterProfileSettings() {
+  const query = useQuery({
+    queryKey: ['me', 'master-profile'],
+    queryFn: () => api<MasterProfileData>('/api/me/master-profile'),
+  })
+  return (
+    <QueryGate
+      query={query}
+      // Фото й імʼя, контакти, де працює, послуги.
+      skeleton={['profile', { rows: 2 }, { rows: 2 }, { rows: 3 }]}
+    >
+      {(data) => <MasterProfile data={data} />}
+    </QueryGate>
   )
 }
 
@@ -66,8 +105,11 @@ function fieldsOf(u: ProfileData['user']) {
 function Profile({ data }: { data: ProfileData }) {
   const { refetch: refetchSession } = authClient.useSession()
   const saved = data.user
+  // «Змінити» на головній «Профілю» відкриває одразу редагування, а
+  // «Зберегти» й «✕» повертають туди ж (як у Telegram).
+  const direct = useLocalSearchParams<{ edit?: string }>().edit === '1'
 
-  const [editing, setEditing] = useState(!saved.onboarded)
+  const [editing, setEditing] = useState(!saved.onboarded || direct)
   const [form, setForm] = useState(() => fieldsOf(saved))
   const set = (patch: Partial<typeof form>) =>
     setForm((f) => ({ ...f, ...patch }))
@@ -125,6 +167,10 @@ function Profile({ data }: { data: ProfileData }) {
   }
 
   function cancelEdit() {
+    if (direct) {
+      router.back()
+      return
+    }
     setForm(fieldsOf(saved))
     setShowErrors(false)
     setEditing(false)
@@ -168,6 +214,7 @@ function Profile({ data }: { data: ProfileData }) {
     setEditing(false)
     setSaving(false)
     setShowErrors(false)
+    if (direct) router.back()
     await refetchSession({ query: { disableCookieCache: true } }).catch(
       () => {},
     )
@@ -197,30 +244,22 @@ function Profile({ data }: { data: ProfileData }) {
     },
   ].filter((g) => g.options.length > 0)
 
-  // «Скасувати» — лише коли є до чого повертатись (профіль уже заповнений).
+  // «✕» (скасувати) — лише коли є до чого повертатись (профіль уже заповнений).
   const header = (
     <Stack.Screen
       options={{
         headerLeft:
           editing && saved.onboarded
             ? () => (
-                <Pressable
+                <RoundButton
+                  icon="close"
+                  label="Скасувати зміни"
                   onPress={cancelEdit}
                   disabled={saving}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  className="h-10 justify-center px-2.5 active:opacity-60"
-                >
-                  {/* Колір акценту — як «Скасувати» в шапках iOS. */}
-                  <Text
-                    numberOfLines={1}
-                    className="text-[17px] text-primary"
-                  >
-                    Скасувати
-                  </Text>
-                </Pressable>
+                />
               )
             : undefined,
+        // Лише «Змінити»/«Зберегти», без дзвіночка — так попросив власник.
         headerRight: () =>
           editing ? (
             <HeaderPill
@@ -268,7 +307,6 @@ function Profile({ data }: { data: ProfileData }) {
 
         <Section
           title="Особисті дані"
-          inset="text"
           footer={
             showErrors && (nameError || phoneError) ? (
               <Footnote tone="error">{nameError || phoneError}</Footnote>
@@ -278,7 +316,10 @@ function Profile({ data }: { data: ProfileData }) {
           }
         >
           <FieldRow
+            icon="profile"
+            tint={TINT.blue}
             label="Імʼя"
+            labelWidth={78}
             value={form.name}
             onChangeText={(name) => set({ name })}
             placeholder="Олена Коваленко"
@@ -288,7 +329,10 @@ function Profile({ data }: { data: ProfileData }) {
             textContentType="name"
           />
           <FieldRow
+            icon="phone"
+            tint={TINT.green}
             label="Телефон"
+            labelWidth={78}
             prefix="+380"
             value={formatPhone(form.phone)}
             onChangeText={(t) => set({ phone: normalizePhone(t) })}
@@ -301,7 +345,6 @@ function Profile({ data }: { data: ProfileData }) {
 
         <Section
           title="Де ви живете"
-          inset="text"
           footer={
             showErrors && placeError ? (
               <Footnote tone="error">{placeError}</Footnote>
@@ -311,12 +354,16 @@ function Profile({ data }: { data: ProfileData }) {
           }
         >
           <Row
+            icon="city"
+            tint={TINT.indigo}
             label="Місто"
             value={cityName || 'Оберіть'}
             onPress={() => setPicker('city')}
           />
           {needsDistrict ? (
             <Row
+              icon="pinFill"
+              tint={TINT.red}
               label="Район"
               value={districtName || 'Оберіть'}
               onPress={() => setPicker('district')}
@@ -347,7 +394,9 @@ function Profile({ data }: { data: ProfileData }) {
         title="Місто"
         searchable
         groups={[
-          { options: data.cities.map((x) => ({ value: x.slug, label: x.name })) },
+          {
+            options: data.cities.map((x) => ({ value: x.slug, label: x.name })),
+          },
         ]}
         value={form.city}
         onPick={pickCity}
@@ -398,16 +447,30 @@ function ProfileView({
         </View>
       </View>
 
-      <Section title="Контакти" inset="text">
+      <Section title="Контакти">
         <Row
+          icon="phone"
+          tint={TINT.green}
           label="Телефон"
           value={phone ? `+380 ${formatPhone(phone)}` : 'Не вказано'}
         />
       </Section>
 
-      <Section title="Де ви живете" inset="text">
-        <Row label="Місто" value={cityName || 'Не вказано'} />
-        {districtName ? <Row label="Район" value={districtName} /> : null}
+      <Section title="Де ви живете">
+        <Row
+          icon="city"
+          tint={TINT.indigo}
+          label="Місто"
+          value={cityName || 'Не вказано'}
+        />
+        {districtName ? (
+          <Row
+            icon="pinFill"
+            tint={TINT.red}
+            label="Район"
+            value={districtName}
+          />
+        ) : null}
       </Section>
 
       <Section title="Про вас" inset="text">
@@ -421,7 +484,8 @@ function ProfileView({
       </Section>
 
       {/* Перехід у виконавці — окрема усвідомлена дія, назад дороги
-          немає. Анкета майстра поки лише на сайті. */}
+          немає. Анкета нового акаунта — у застосунку (onboarding), а
+          перехід клієнта у виконавці поки на сайті. */}
       {u.role === 'CLIENT' ? (
         <Section footer="Повернутися до ролі замовника буде неможливо.">
           <Row

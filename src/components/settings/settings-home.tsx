@@ -1,5 +1,5 @@
 import Constants from 'expo-constants'
-import { router } from 'expo-router'
+import { router, Stack } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { Platform, Pressable, Text, View } from 'react-native'
 
@@ -14,19 +14,24 @@ import {
   TINT,
 } from '@/components/settings/list'
 import { useAvatarEditor } from '@/components/settings/use-avatar-editor'
+import { WithBell } from '@/components/header-bell'
 import { Button } from '@/components/ui/button'
+import { HeaderPill } from '@/components/ui/header-pill'
 import { SQUIRCLE } from '@/components/ui/tile'
 import { useAppearance } from '@/lib/appearance'
 import { authClient, roleOf } from '@/lib/auth'
 import { SITE_URL } from '@/lib/config'
 import { confirmAction } from '@/lib/confirm'
+import { releasePush } from '@/lib/push'
 
 const openSite = (path: string) =>
   WebBrowser.openBrowserAsync(`${SITE_URL}${path}`)
 
 /** Профіль: замовник — екран у застосунку, майстер — поки на сайті. */
 export function openProfile(role: string | null | undefined) {
-  if (roleOf({ role }) === 'CLIENT') router.push('/settings/profile')
+  const r = roleOf({ role })
+  // Клієнт і майстер — свій екран у застосунку; службові ролі — на сайті.
+  if (r === 'CLIENT' || r === 'MASTER') router.push('/settings/profile')
   else void openSite('/dashboard/settings/profile')
 }
 
@@ -47,6 +52,7 @@ export function SettingsHome() {
   if (!user) return null
 
   const client = roleOf(user) === 'CLIENT'
+  const master = roleOf(user) === 'MASTER'
   const name = user.name || user.email
   const toProfile = () => openProfile(user.role)
 
@@ -56,13 +62,39 @@ export function SettingsHome() {
       destructive: true,
     })
     if (!ok) return
+    // Push цієї людини на цей телефон більше не йде (lib/push) — поки
+    // сесія ще жива: запис на сайті знімається від її імені.
+    await releasePush()
     await authClient.signOut()
     // Дані попередньої людини не мають пережити вихід.
     queryClient.clear()
   }
 
+  // «Змінити» праворуч у шапці — одразу редагування профілю, як у Telegram
+  // (так попросив власник); та сама пігулка, що на екрані профілю.
+  // Службові ролі редагують профіль на сайті — їм кнопки немає.
+  const edit =
+    client || master ? (
+      <HeaderPill
+        label="Змінити"
+        tone="secondary"
+        onPress={() =>
+          router.push({ pathname: '/settings/profile', params: { edit: '1' } })
+        }
+      />
+    ) : null
+
   return (
     <SettingsScroll>
+      {edit ? (
+        <Stack.Screen
+          options={{
+            // У майстра (вкладка «Профіль») — ще й дзвіночок, як скрізь у
+            // нього; у клієнта сповіщення — у нижній панелі чи бічній.
+            headerRight: () => (master ? <WithBell>{edit}</WithBell> : edit),
+          }}
+        />
+      ) : null}
       <View className="items-center gap-3 pt-1">
         <EditableAvatar
           uri={photo.avatar.url || null}
@@ -109,7 +141,7 @@ export function SettingsHome() {
           tint={TINT.blue}
           label="Профіль"
           onPress={toProfile}
-          external={!client}
+          external={!client && !master}
         />
         <Row
           icon="security"

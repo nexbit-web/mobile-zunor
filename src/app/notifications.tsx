@@ -1,12 +1,3 @@
-import { ComingSoon } from '@/components/coming-soon'
-
-// Далі: GET /api/notifications і push (PushDevice на сервері).
-export default function NotificationsScreen() {
-  return (
-    <ComingSoon
-      icon="bell"
-      title="Сповіщення — незабаром"
-      text="Нові заявки, пропозиції й нагадування прийдуть сюди й на екран телефону."
-    />
-  )
-}
+// Сповіщення поверх усього (дзвіночок у шапці, push). Той самий екран —
+// вкладка нижньої панелі клієнта (прототип, app/(app)/alerts).
+export { NotificationsScreen as default } from '@/components/notifications/notifications-screen'

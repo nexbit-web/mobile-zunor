@@ -16,17 +16,21 @@ import { useColors } from '@/lib/theme'
  * - action — суцільний акцент: тут людині треба щось зробити;
  * - live — акцент блідо, з «пульсом»: іде просто зараз;
  * - progress — бурштин: майстра обрано, робота ще попереду;
- * - done — зелений: закрито; off — сірий: скасовано чи минуло.
+ * - done — зелений: закрито; off — сірий: скасовано чи минуло;
+ * - danger — червоний: відмова (перевірку не пройдено).
  */
-export type PillTone = 'action' | 'live' | 'progress' | 'done' | 'off'
+export type PillTone = 'action' | 'live' | 'progress' | 'done' | 'off' | 'danger'
 
 export function StatusPill({
   label,
   tone,
   pulse = false,
+  size = 'sm',
 }: {
   label: string
   tone: PillTone
+  /** sm — у картках; md — над назвою на сторінці заявки. */
+  size?: 'sm' | 'md'
   /** Пульс — рівно один стан на картку, що рухається просто зараз. */
   pulse?: boolean
 }) {
@@ -45,19 +49,25 @@ export function StatusPill({
       bg: 'rgba(16, 185, 129, 0.16)',
       fg: dark ? '#34d399' : '#047857',
     },
-    off: { bg: dark ? '#2c2c2e' : '#e5e5ea', fg: c.mutedForeground },
+    off: { bg: dark ? '#3a3a3c' : '#e5e5ea', fg: c.mutedForeground },
+    danger: {
+      bg: 'rgba(255, 59, 48, 0.14)',
+      fg: dark ? '#ff6961' : '#d70015',
+    },
   }
   const { bg, fg } = look[tone]
 
   return (
     <View
-      className="h-[26px] flex-row items-center gap-1.5 rounded-full px-2.5"
+      className={`flex-row items-center gap-1.5 rounded-full ${
+        size === 'md' ? 'h-[30px] px-3' : 'h-[26px] px-2.5'
+      }`}
       style={{ backgroundColor: bg }}
     >
       {pulse ? <LiveDot color={fg} /> : null}
       <Text
         numberOfLines={1}
-        className="text-[12.5px] font-semibold"
+        className={`font-semibold ${size === 'md' ? 'text-[13.5px]' : 'text-[12.5px]'}`}
         style={{ color: fg }}
       >
         {label}

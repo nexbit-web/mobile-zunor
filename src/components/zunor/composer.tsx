@@ -16,15 +16,16 @@ import {
   View,
 } from 'react-native'
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  ZoomIn,
-  ZoomOut,
 } from 'react-native-reanimated'
 
 import { Glyph } from '@/components/icons/glyph'
 import { Icon } from '@/components/icons/icon'
+import { YieldToDrawer } from '@/components/ui/yield-to-drawer'
+import { useRowSwipeGuard } from '@/lib/drawer-swipe'
 import { useColors } from '@/lib/theme'
 import type { Photo } from '@/lib/upload'
 
@@ -78,6 +79,9 @@ export function Composer({
   const [lines, setLines] = useState(1)
 
   const hasPhotos = photos.length > 0 || uploading > 0
+  // Прогорнута стрічка фото — свайп управо гортає її, а бічна панель —
+  // лише від краю (lib/drawer-swipe).
+  const photosGuard = useRowSwipeGuard(hasPhotos)
   const expanded = hasPhotos || lines > 1 || value.includes('\n')
 
   const animate = () =>
@@ -97,32 +101,13 @@ export function Composer({
     </Pressable>
   )
 
-  // Ключ — різний для «Стоп» і «Надіслати»: заміна однієї на іншу теж
-  // анімується, а не стрибає.
-  const action = streaming ? (
-    <Animated.View
-      key="stop"
-      entering={ZoomIn.duration(150)}
-      exiting={ZoomOut.duration(110)}
-    >
-      <Pressable
-        onPress={onStop}
-        hitSlop={6}
-        accessibilityRole="button"
-        accessibilityLabel="Зупинити відповідь"
-        className="size-[34px] items-center justify-center rounded-full bg-foreground active:opacity-85"
-      >
-        <Glyph name="stop" size={13} color={c.background} weight="bold" />
-      </Pressable>
-    </Animated.View>
-  ) : (
-    <Animated.View
-      key="send"
-      entering={ZoomIn.duration(150)}
-      exiting={ZoomOut.duration(110)}
-    >
-      <SendButton active={canSend} onPress={onSend} />
-    </Animated.View>
+  const action = (
+    <ActionButton
+      streaming={streaming}
+      canSend={canSend}
+      onSend={onSend}
+      onStop={onStop}
+    />
   )
 
   return (
@@ -154,39 +139,42 @@ export function Composer({
       ) : null}
 
       {hasPhotos ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerClassName="gap-2 px-0.5 pb-2 pt-1.5"
-        >
-          {photos.map((p, i) => (
-            <View key={p.publicId} className="size-16">
-              <Image
-                source={p.url}
-                contentFit="cover"
-                style={{ width: 64, height: 64, borderRadius: 12 }}
-              />
-              <Pressable
-                onPress={() => onRemovePhoto(i)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Прибрати фото"
-                className="absolute -right-1.5 -top-1.5 size-6 items-center justify-center rounded-full bg-foreground"
+        <YieldToDrawer>
+          <ScrollView
+            horizontal
+            {...photosGuard}
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerClassName="gap-2 px-0.5 pb-2 pt-1.5"
+          >
+            {photos.map((p, i) => (
+              <View key={p.publicId} className="size-16">
+                <Image
+                  source={p.url}
+                  contentFit="cover"
+                  style={{ width: 64, height: 64, borderRadius: 12 }}
+                />
+                <Pressable
+                  onPress={() => onRemovePhoto(i)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Прибрати фото"
+                  className="absolute -right-1.5 -top-1.5 size-6 items-center justify-center rounded-full bg-foreground"
+                >
+                  <Icon name="x" size={13} color={c.background} strokeWidth={2.2} />
+                </Pressable>
+              </View>
+            ))}
+            {Array.from({ length: uploading }, (_, i) => (
+              <View
+                key={`up-${i}`}
+                className="size-16 items-center justify-center rounded-[12px] bg-secondary"
               >
-                <Icon name="x" size={13} color={c.background} strokeWidth={2.2} />
-              </Pressable>
-            </View>
-          ))}
-          {Array.from({ length: uploading }, (_, i) => (
-            <View
-              key={`up-${i}`}
-              className="size-16 items-center justify-center rounded-[12px] bg-secondary"
-            >
-              <ActivityIndicator size="small" color={c.mutedForeground} />
-            </View>
-          ))}
-        </ScrollView>
+                <ActivityIndicator size="small" color={c.mutedForeground} />
+              </View>
+            ))}
+          </ScrollView>
+        </YieldToDrawer>
       ) : null}
 
       {/* Поле лишається тим самим вузлом в обох виглядах (сусіди —
@@ -231,9 +219,86 @@ export function Composer({
 }
 
 /**
+ * «Надіслати» і «Стоп» — на одному місці, ОБИДВІ завжди змонтовані: одна
+ * плавно перетікає в іншу (проявлення й ледь помітне збільшення, 200 мс,
+ * рівно). Раніше їх міняв монтаж із ZoomIn/ZoomOut — нова кнопка
+ * «вискакувала» з нуля, а в ту ж мить над полем зʼявлялись
+ * кнопки-відповіді, і вона ніби стрибала знизу вгору (власник). Тут
+ * нічого не монтується й не перекладається — міняються лише прозорість і
+ * масштаб; натискається лише видима.
+ */
+function ActionButton({
+  streaming,
+  canSend,
+  onSend,
+  onStop,
+}: {
+  streaming: boolean
+  canSend: boolean
+  onSend: () => void
+  onStop: () => void
+}) {
+  const c = useColors()
+  const stop = useSharedValue(streaming ? 1 : 0)
+
+  useEffect(() => {
+    stop.set(
+      withTiming(streaming ? 1 : 0, {
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+      }),
+    )
+  }, [streaming, stop])
+
+  const stopStyle = useAnimatedStyle(() => ({
+    opacity: stop.get(),
+    transform: [{ scale: 0.85 + stop.get() * 0.15 }],
+  }))
+  const sendStyle = useAnimatedStyle(() => ({
+    opacity: 1 - stop.get(),
+    transform: [{ scale: 1 - stop.get() * 0.15 }],
+  }))
+
+  return (
+    <View className="size-[34px]">
+      <Animated.View
+        style={[StyleSheet.absoluteFill, sendStyle]}
+        pointerEvents={streaming ? 'none' : 'auto'}
+        accessibilityElementsHidden={streaming}
+        importantForAccessibility={streaming ? 'no-hide-descendants' : 'auto'}
+      >
+        <SendButton active={canSend} onPress={onSend} />
+      </Animated.View>
+      <Animated.View
+        style={[StyleSheet.absoluteFill, stopStyle]}
+        pointerEvents={streaming ? 'auto' : 'none'}
+        accessibilityElementsHidden={!streaming}
+        importantForAccessibility={streaming ? 'auto' : 'no-hide-descendants'}
+      >
+        <Pressable
+          onPress={onStop}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Зупинити відповідь"
+          className="size-[34px] items-center justify-center rounded-full bg-primary active:opacity-85"
+        >
+          <Glyph
+            name="stop"
+            size={13}
+            color={c.primaryForeground}
+            weight="bold"
+          />
+        </Pressable>
+      </Animated.View>
+    </View>
+  )
+}
+
+/**
  * «Надіслати» — наша іконка з сайту. Неактивна — сіре коло з приглушеною
- * стрілкою; активна — суцільне коло кольору тексту. Між станами —
- * плавне проявлення (а не стрибок кольору).
+ * стрілкою; активна — суцільне коло кольору акценту, як «Надіслати» в
+ * чаті (раніше було кольору тексту — власник попросив акцент). Між
+ * станами — плавне проявлення (а не стрибок кольору).
  */
 function SendButton({
   active,
@@ -271,14 +336,19 @@ function SendButton({
           StyleSheet.absoluteFill,
           {
             borderRadius: 17,
-            backgroundColor: c.foreground,
+            backgroundColor: c.primary,
             alignItems: 'center',
             justifyContent: 'center',
           },
           fill,
         ]}
       >
-        <Icon name="send" size={18} color={c.background} strokeWidth={2} />
+        <Icon
+          name="send"
+          size={18}
+          color={c.primaryForeground}
+          strokeWidth={2}
+        />
       </Animated.View>
     </Pressable>
   )

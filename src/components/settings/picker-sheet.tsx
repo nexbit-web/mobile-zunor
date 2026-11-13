@@ -84,6 +84,7 @@ export function PickerSheet({
         ) : null}
 
         <ScrollView
+          showsVerticalScrollIndicator={false}
           contentContainerClassName="gap-6 px-4 pt-4"
           contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
           keyboardShouldPersistTaps="handled"

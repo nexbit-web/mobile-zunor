@@ -3,6 +3,7 @@ import {
   Children,
   Fragment,
   isValidElement,
+  useContext,
   type ComponentRef,
   type ReactNode,
   type Ref,
@@ -21,8 +22,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { Glyph, type GlyphName } from '@/components/icons/glyph'
 import { Button } from '@/components/ui/button'
+import { SettingsSkeleton, type SettingsBlock } from '@/components/ui/skeleton'
 import { SQUIRCLE, Tile } from '@/components/ui/tile'
 import { errorText } from '@/lib/api'
+import { DockSpace } from '@/lib/dock'
 import { useLargeTitleScroll } from '@/lib/large-title'
 import { useColors } from '@/lib/theme'
 
@@ -44,6 +47,9 @@ export function SettingsScroll({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets()
   // Під напівпрозорою шапкою з великим заголовком (lib/large-title).
   const { padTop, scrollProps } = useLargeTitleScroll()
+  // Вкладка «Профіль» під нижньою панеллю (lib/dock): кінець — версія
+  // застосунку — має ставати трохи вище панелі, а не ховатися під нею.
+  const dock = useContext(DockSpace)
   return (
     <Animated.ScrollView
       {...scrollProps}
@@ -51,7 +57,7 @@ export function SettingsScroll({ children }: { children: ReactNode }) {
       contentContainerClassName="gap-7 px-4"
       contentContainerStyle={{
         paddingTop: padTop + 12,
-        paddingBottom: insets.bottom + 40,
+        paddingBottom: Math.max(insets.bottom + 40, dock + 24),
       }}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="interactive"
@@ -147,6 +153,7 @@ export function Row({
   external = false,
   loading = false,
   disabled = false,
+  selected,
 }: {
   icon?: GlyphName
   tint?: string
@@ -162,6 +169,11 @@ export function Row({
   external?: boolean
   loading?: boolean
   disabled?: boolean
+  /**
+   * Рядок вибору (як «Мова» в налаштуваннях iPhone): є — праворуч галочка
+   * акценту на обраному, шеврона немає.
+   */
+  selected?: boolean
 }) {
   const c = useColors()
   const content = (
@@ -188,6 +200,12 @@ export function Row({
       {right}
       {loading ? (
         <ActivityIndicator size="small" color={c.mutedForeground} />
+      ) : selected !== undefined ? (
+        <View className="w-[18px] items-center">
+          {selected ? (
+            <Glyph name="check" size={17} color={c.primary} weight="semibold" />
+          ) : null}
+        </View>
       ) : onPress && chevron ? (
         // Шеврон iOS — дрібний і жирний, кольору «третинного» тексту.
         <View style={{ opacity: 0.5 }}>
@@ -209,7 +227,11 @@ export function Row({
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      accessibilityState={{
+        disabled: disabled || loading,
+        busy: loading,
+        selected,
+      }}
       className={`${box} active:bg-secondary ${disabled ? 'opacity-45' : ''}`}
     >
       {content}
@@ -269,6 +291,8 @@ export function FieldRow({
   labelWidth = 92,
   prefix,
   right,
+  icon,
+  tint,
   ...props
 }: TextInputProps & {
   ref?: Ref<ComponentRef<typeof TextInput>>
@@ -277,10 +301,18 @@ export function FieldRow({
   /** Незмінна частина перед текстом (напр. «+380» телефону). */
   prefix?: string
   right?: ReactNode
+  /** Плитка ліворуч, як у Row (група тоді — `inset="tile"`). */
+  icon?: GlyphName
+  tint?: string
 }) {
   const c = useColors()
   return (
     <View className="min-h-[50px] flex-row items-center gap-3 px-4">
+      {icon && tint ? (
+        <View className="mr-0.5">
+          <Tile icon={icon} tint={tint} />
+        </View>
+      ) : null}
       {label ? (
         <Text
           className="text-[17px] tracking-[-0.2px] text-foreground"
@@ -319,96 +351,32 @@ export function AreaField(props: TextInputProps) {
   )
 }
 
-/** Кнопка шапки «Зберегти»: пігулка в колір акценту, сіра — поки нічого. */
-export function HeaderSave(props: {
-  onPress: () => void
-  disabled: boolean
-  loading: boolean
-}) {
-  return <HeaderPill label="Зберегти" {...props} />
-}
-
 /**
- * Пігулка в шапці: «Змінити» (сіра — дія без наслідків) і «Зберегти»
- * (у колір акценту, сіра — поки нічого зберігати). Одне місце, одна
- * форма — «Змінити» перетворюється на «Зберегти», а не стрибає.
- */
-export function HeaderPill({
-  label,
-  onPress,
-  disabled = false,
-  loading = false,
-  tone = 'primary',
-}: {
-  label: string
-  onPress: () => void
-  disabled?: boolean
-  loading?: boolean
-  tone?: 'primary' | 'secondary'
-}) {
-  const c = useColors()
-  const off = disabled || loading
-  const filled = tone === 'primary' && !off
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={off}
-      hitSlop={8}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: off, busy: loading }}
-      className={`h-9 shrink-0 items-center justify-center rounded-full px-3.5 active:opacity-80 ${
-        filled ? 'bg-primary' : 'bg-secondary'
-      }`}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color={c.mutedForeground} />
-      ) : (
-        // Одним рядком: перенесена остання літера («Зберегт/и») — це бите.
-        <Text
-          numberOfLines={1}
-          className={`text-[15px] font-semibold ${
-            filled
-              ? 'text-primary-foreground'
-              : off
-                ? 'text-muted-foreground'
-                : 'text-foreground'
-          }`}
-        >
-          {label}
-        </Text>
-      )}
-    </Pressable>
-  )
-}
-
-/**
- * Поки дані розділу вантажаться — спінер; не вийшло — причина й
- * «Спробувати ще раз». Готово — сам екран.
+ * Поки дані розділу вантажаться — скелетон екрана (ui/skeleton): сірі
+ * групи там, де стануть справжні; `skeleton` — будова саме цього
+ * розділу. Не вийшло — причина й «Спробувати ще раз». Готово — сам
+ * екран.
  */
 export function QueryGate<T>({
   query,
+  skeleton,
   children,
 }: {
   query: UseQueryResult<T>
+  skeleton?: SettingsBlock[]
   children: (data: T) => ReactNode
 }) {
-  const c = useColors()
   if (query.data !== undefined) return children(query.data)
+  if (!query.isError) return <SettingsSkeleton blocks={skeleton} />
 
   return (
     <View className="flex-1 items-center justify-center gap-4 bg-background p-8">
-      {query.isError ? (
-        <>
-          <Text className="text-center text-[15px] leading-[21px] text-muted-foreground">
-            {errorText(query.error)}
-          </Text>
-          <Button variant="secondary" onPress={() => query.refetch()}>
-            Спробувати ще раз
-          </Button>
-        </>
-      ) : (
-        <ActivityIndicator color={c.mutedForeground} />
-      )}
+      <Text className="text-center text-[15px] leading-[21px] text-muted-foreground">
+        {errorText(query.error)}
+      </Text>
+      <Button variant="secondary" onPress={() => query.refetch()}>
+        Спробувати ще раз
+      </Button>
     </View>
   )
 }

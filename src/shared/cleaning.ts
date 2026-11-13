@@ -149,3 +149,84 @@ export function jobTags(metadata: unknown): string[] {
   }
   return tags.filter(Boolean)
 }
+
+// ─── Характеристики заявки — КОПІЯ describeJob з
+// web/src/lib/categories/cleaning/describe.ts. Іконка — та сама назва, що
+// на сайті (detail-icons.ts); екран сам перекладає її у свою іконку.
+
+export type DetailIcon =
+  | 'Home'
+  | 'Sparkles'
+  | 'DoorOpen'
+  | 'Ruler'
+  | 'Repeat'
+  | 'Trash2'
+  | 'AppWindow'
+  | 'ArrowLeftRight'
+  | 'Columns2'
+  | 'Building'
+  | 'ArrowUpDown'
+  | 'Calendar'
+
+export interface JobDetailItem {
+  name: string
+  qty: number
+}
+
+export interface JobSpec {
+  label: string
+  value: string
+  icon?: DetailIcon
+  /** Для хімчистки — список предметів. */
+  items?: JobDetailItem[]
+}
+
+/** Список характеристик заявки з metadata; [] — якщо їх немає. */
+export function describeJob(metadata: unknown): JobSpec[] {
+  if (!metadata || typeof metadata !== 'object') return []
+  const m = metadata as Record<string, unknown>
+  const out: JobSpec[] = []
+
+  if (m.premise)
+    out.push({ label: 'Помешкання', value: premiseLabel(String(m.premise)), icon: 'Home' })
+  if (m.service)
+    out.push({ label: 'Послуга', value: serviceLabel(String(m.service)), icon: 'Sparkles' })
+  if (m.rooms) out.push({ label: 'Кімнат', value: label(ROOMS, m.rooms), icon: 'DoorOpen' })
+  // Площа — зі слів клієнта, тому «≈»
+  if (typeof m.areaM2 === 'number' && m.areaM2 > 0)
+    out.push({ label: 'Площа', value: `≈ ${m.areaM2} м²`, icon: 'Ruler' })
+  if (m.frequency)
+    out.push({ label: 'Періодичність', value: label(FREQUENCY, m.frequency), icon: 'Repeat' })
+  if (m.trash) out.push({ label: 'Сміття', value: label(TRASH, m.trash), icon: 'Trash2' })
+  if (m.windowsCount) {
+    const n = Number(m.windowsCount)
+    out.push({
+      label: 'Кількість вікон',
+      value: `${n} ${pluralUk(n, 'вікно', 'вікна', 'вікон')}`,
+      icon: 'AppWindow',
+    })
+  }
+  if (m.windowSide)
+    out.push({ label: 'Сторона миття', value: label(WINDOW_SIDE, m.windowSide), icon: 'ArrowLeftRight' })
+  if (m.balcony) out.push({ label: 'Балкон', value: label(BALCONY, m.balcony), icon: 'Columns2' })
+  if (m.floor != null)
+    out.push({ label: 'Поверх', value: `${m.floor}-й поверх`, icon: 'Building' })
+  if (m.hasElevator)
+    out.push({ label: 'Ліфт', value: label(ELEVATOR, m.hasElevator), icon: 'ArrowUpDown' })
+  if (Array.isArray(m.items) && m.items.length > 0) {
+    const items = m.items.map((raw: unknown) => {
+      const it = (raw ?? {}) as Record<string, unknown>
+      const def = SOFA_ITEMS.find((i) => i.key === String(it.type))
+      const variant =
+        it.variant && def?.variants
+          ? ` (${def.variants[String(it.variant)] ?? String(it.variant)})`
+          : ''
+      return {
+        name: `${def?.label ?? String(it.type)}${variant}`,
+        qty: Number(it.qty) || 1,
+      }
+    })
+    out.push({ label: 'Предмети', value: '', items })
+  }
+  return out
+}

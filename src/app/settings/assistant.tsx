@@ -10,11 +10,11 @@ import {
   ActionRow,
   AreaField,
   FieldRow,
-  HeaderSave,
   QueryGate,
   Section,
   SettingsScroll,
 } from '@/components/settings/list'
+import { HeaderSave } from '@/components/ui/header-pill'
 import { api, errorText } from '@/lib/api'
 import { useColors } from '@/lib/theme'
 import type { AiObject, AssistantData } from '@/shared/settings'
@@ -30,7 +30,15 @@ export default function AssistantSettings() {
     queryFn: () => api<AssistantData>('/api/profile/ai-profile'),
   })
   return (
-    <QueryGate query={query}>
+    <QueryGate
+      query={query}
+      // «Про вас» (поля), обʼєкти, послуги.
+      skeleton={[
+        { rows: 2, tiles: false },
+        { rows: 3 },
+        { rows: 3 },
+      ]}
+    >
       {(data) => <AssistantForm data={data} />}
     </QueryGate>
   )
@@ -110,6 +118,7 @@ function AssistantForm({ data }: { data: AssistantData }) {
     <>
       <Stack.Screen
         options={{
+          // Лише «Зберегти», без дзвіночка — так попросив власник.
           headerRight: () => (
             <HeaderSave onPress={save} disabled={!dirty} loading={saving} />
           ),

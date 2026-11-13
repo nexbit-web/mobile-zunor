@@ -42,6 +42,29 @@ export function formatDay(iso: string, now: Date = new Date()): string {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
+/**
+ * День повністю, як у документі: «Субота, 14 листопада»; сьогодні й
+ * завтра — «Сьогодні, 11 листопада», «Завтра, 12 листопада».
+ */
+export function formatDayLong(iso: string, now: Date = new Date()): string {
+  const day = Date.parse(`${iso}T00:00:00Z`)
+  if (Number.isNaN(day)) return ''
+  const date = new Date(day).toLocaleDateString('uk-UA', {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'long',
+  })
+  const near = formatDay(iso, now)
+  if (near === 'Сьогодні' || near === 'Завтра' || near === 'Учора') {
+    return `${near}, ${date}`
+  }
+  const weekday = new Date(day).toLocaleDateString('uk-UA', {
+    timeZone: 'UTC',
+    weekday: 'long',
+  })
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${date}`
+}
+
 export function pluralUk(
   n: number,
   one: string,
