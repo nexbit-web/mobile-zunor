@@ -1,4 +1,4 @@
-import { Text, useColorScheme, View } from 'react-native'
+import { Alert, Linking, Text, useColorScheme, View } from 'react-native'
 
 import { Glyph } from '@/components/icons/glyph'
 import { Avatar } from '@/components/ui/avatar'
@@ -24,20 +24,33 @@ const TONE: Record<string, PillTone> = {
   WITHDRAWN: 'off',
 }
 
+/** Набрати номер майстра. Не вийшло (симулятор, планшет) — показати його. */
+function call(phone: string) {
+  void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() =>
+    Alert.alert('Не вдалося подзвонити', phone),
+  )
+}
+
 /**
  * Пропозиція майстра — як на сайті (job-client-view): хто, рейтинг і коли
  * — ліворуч, ціна й строк — праворуч, на тому самому місці в кожній
- * картці (клієнт порівнює саме за ними), нижче — повідомлення майстра й
- * «Обрати майстра».
+ * картці (клієнт порівнює саме за ними), нижче — повідомлення майстра,
+ * «Подзвонити» й «Обрати майстра».
+ *
+ * Номер майстра — просто в пропозиції (власник): клієнт дзвонить і
+ * домовляється про ціну, майстер оновлює її у своїй пропозиції, і тоді
+ * клієнт його обирає. Чат — лише після вибору, у замовленні.
  *
  * `mine` — майстрові його власна: замість імені — «Ваша пропозиція», а
- * стан видно завжди (і «Очікує» теж — це його головна новина).
+ * стан видно завжди (і «Очікує» теж — це його головна новина). Поки його
+ * не обрали — «Змінити ціну» (`onEditPrice`).
  */
 export function ProposalCard({
   proposal: p,
   currency,
   mine = false,
   onAccept,
+  onEditPrice,
   accepting = false,
   disabled = false,
 }: {
@@ -46,6 +59,8 @@ export function ProposalCard({
   mine?: boolean
   /** Є — показуємо «Обрати майстра». */
   onAccept?: () => void
+  /** Є — майстрові «Змінити ціну» у своїй пропозиції. */
+  onEditPrice?: () => void
   accepting?: boolean
   disabled?: boolean
 }) {
@@ -54,6 +69,7 @@ export function ProposalCard({
   const name = p.master.name || p.master.username || 'Майстер'
   const price = formatPrice(p.priceCents, currency)
   const tone = mine ? (TONE[p.status] ?? 'live') : TONE[p.status]
+  const phone = !mine ? (p.master.phone ?? null) : null
 
   return (
     <View className="gap-3.5 rounded-[24px] bg-card p-4" style={SQUIRCLE}>
@@ -135,10 +151,41 @@ export function ProposalCard({
         {p.message}
       </Text>
 
-      {onAccept ? (
-        <Button onPress={onAccept} loading={accepting} disabled={disabled}>
-          Обрати майстра
-        </Button>
+      {/* Спершу подзвонити й домовитись, потім обрати — дві кнопки поруч. */}
+      {onAccept || phone ? (
+        <View className="flex-row gap-2.5">
+          {phone ? (
+            <Button
+              variant="secondary"
+              className="flex-1 px-3"
+              onPress={() => call(phone)}
+            >
+              Подзвонити
+            </Button>
+          ) : null}
+          {onAccept ? (
+            <Button
+              className="flex-1 px-3"
+              onPress={onAccept}
+              loading={accepting}
+              disabled={disabled}
+            >
+              Обрати
+            </Button>
+          ) : null}
+        </View>
+      ) : null}
+
+      {onEditPrice ? (
+        <View className="gap-2.5">
+          <Text className="text-[13.5px] leading-[19px] text-muted-foreground">
+            Клієнт бачить ваш номер і може подзвонити, щоб домовитись.
+            Домовились про іншу ціну — змініть її, поки вас не обрали.
+          </Text>
+          <Button variant="secondary" onPress={onEditPrice}>
+            Змінити ціну
+          </Button>
+        </View>
       ) : null}
     </View>
   )

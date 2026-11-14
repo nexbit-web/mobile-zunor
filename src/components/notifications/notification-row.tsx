@@ -30,6 +30,7 @@ import {
 const TILES: Record<string, { icon: GlyphName; tint: string }> = {
   NEW_JOB: { icon: 'nJob', tint: TINT.blue },
   NEW_PROPOSAL: { icon: 'nProposal', tint: TINT.indigo },
+  PROPOSAL_UPDATED: { icon: 'wallet', tint: TINT.green },
   PROPOSAL_ACCEPTED: { icon: 'nChosen', tint: TINT.green },
   ORDER_STARTED: { icon: 'nStarted', tint: TINT.orange },
   ORDER_COMPLETED: { icon: 'done', tint: TINT.green },

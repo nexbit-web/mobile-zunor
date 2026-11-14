@@ -458,7 +458,7 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
           title={company ? 'Дані компанії' : 'Особисті дані'}
           footer={err(
             errors.name || errors.username || errors.phone,
-            `Сторінка: zunor.org/@${uname || 'username'}. Телефон клієнт побачить лише після підтвердження замовлення. Зміни пройдуть повторну перевірку.`,
+            `Сторінка: zunor.org/@${uname || 'username'}. Телефон клієнт бачить у ваших пропозиціях. Зміни пройдуть повторну перевірку.`,
           )}
         >
           <FieldRow

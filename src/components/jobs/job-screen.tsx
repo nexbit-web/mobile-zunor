@@ -54,8 +54,10 @@ import {
   type JobDetail,
   type JobProposal,
 } from '@/shared/jobs'
+import { formatPrice } from '@/shared/orders'
 
 import { Chip, GroupLabel, InfoRow, MetaLine } from './job-details'
+import { PriceSheet } from './price-sheet'
 import { ProposalCard } from './proposal-card'
 import { ProposeSheet } from './propose-sheet'
 
@@ -179,6 +181,7 @@ function JobBody({
   const qc = useQueryClient()
   const [accepting, setAccepting] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
+  const [pricing, setPricing] = useState(false)
 
   const { job, isOwner } = data
   const master = !isOwner
@@ -235,7 +238,7 @@ function JobBody({
       ? proposals.length > 0
         ? `Уже є ${proposals.length} ${pluralUk(proposals.length, 'пропозиція', 'пропозиції', 'пропозицій')}${
             recommended.length > 0 ? ' — тих, кого раджу, я позначив' : ''
-          }. Порівняйте їх угорі й оберіть одного майстра.`
+          }. Порівняйте їх угорі й подзвоніть майстру, щоб домовитись про ціну, — тоді оберіть його.`
         : 'Шукаю майстрів поруч. Можете спокійно займатися справами — я сповіщу, щойно хтось відгукнеться.'
       : null
 
@@ -266,8 +269,7 @@ function JobBody({
     const ok = await confirmAction('Обрати цього майстра?', {
       confirm: 'Обрати',
       cancel: 'Назад',
-      message:
-        'Інші пропозиції буде відхилено, а заявка стане замовленням: там телефон майстра й чат, щоб домовитись про деталі.',
+      message: `Ціна — ${formatPrice(p.priceCents, job.currency)}. Інші пропозиції буде відхилено, а заявка стане замовленням: там відкриється чат із майстром.`,
     })
     if (!ok) return
     setAccepting(p.id)
@@ -414,7 +416,26 @@ function JobBody({
       {mine ? (
         <View className="gap-2">
           <GroupLabel>Ваша пропозиція</GroupLabel>
-          <ProposalCard proposal={mine} currency={job.currency} mine />
+          <ProposalCard
+            proposal={mine}
+            currency={job.currency}
+            mine
+            onEditPrice={
+              mine.status === 'SENT' && open
+                ? () => setPricing(true)
+                : undefined
+            }
+          />
+          <PriceSheet
+            visible={pricing}
+            proposalId={mine.id}
+            priceCents={mine.priceCents}
+            onClose={() => setPricing(false)}
+            onSaved={() => {
+              setPricing(false)
+              void qc.invalidateQueries({ queryKey: ['job', id] })
+            }}
+          />
         </View>
       ) : master && !data.canPropose && data.cantProposeReason ? (
         <Notice text={data.cantProposeReason} />

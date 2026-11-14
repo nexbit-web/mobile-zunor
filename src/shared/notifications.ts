@@ -28,6 +28,7 @@ export interface NotificationsPage {
 const LABELS: Record<string, string> = {
   NEW_JOB: 'Нова заявка',
   NEW_PROPOSAL: 'Новий відгук',
+  PROPOSAL_UPDATED: 'Нова ціна',
   PROPOSAL_ACCEPTED: 'Вас обрали',
   ORDER_STARTED: 'Робота почалась',
   ORDER_COMPLETED: 'Роботу завершено',

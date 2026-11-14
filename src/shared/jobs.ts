@@ -59,6 +59,13 @@ export interface JobProposal {
     avatar: string | null
     avgRating: number
     reviewsCount: number
+    /**
+     * Телефон майстра — лише власникові заявки й лише в живій або
+     * прийнятій пропозиції (job-detail на сайті): клієнт дзвонить
+     * домовитись про ціну ще до вибору. Старий сервер не віддає — тоді
+     * кнопки «Подзвонити» просто немає.
+     */
+    phone?: string | null
   }
 }
 
