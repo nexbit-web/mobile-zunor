@@ -3,7 +3,6 @@
 //   web/src/lib/masters/meta.ts            — хто, формат роботи, транспорт
 //   web/src/lib/geo/travel.ts              — як далеко їздити
 //   web/src/lib/categories/cleaning/skills.ts — які прибирання й де
-//   web/src/lib/username.ts                — правила username
 // Сервер (POST /api/profile/master → saveMasterProfile) перевіряє все
 // повторно. Міняється там — міняй тут у тій самій задачі.
 
@@ -118,27 +117,6 @@ export function parseCleaningSkills(raw: unknown): CleaningSkills {
       PREMISE_GROUPS.map((g) => g.key),
     ),
   }
-}
-
-// ─── Username ───
-
-export const USERNAME_RE = /^[a-z][a-z0-9_]{2,19}$/
-
-const RESERVED = new Set([
-  'admin', 'root', 'api', 'support', 'help', 'zunor', 'system', 'user',
-  'users', 'profile', 'dashboard', 'settings', 'login', 'register', 'signup',
-  'logout', 'moderation', 'verified', 'null', 'undefined', 'anonymous',
-])
-
-/** Те саме, що validateUsername на сайті: '' — усе добре, інакше причина. */
-export function usernameProblem(raw: string): string {
-  const v = raw.trim().toLowerCase()
-  if (!v) return 'Введіть username'
-  if (!USERNAME_RE.test(v)) {
-    return '3–20 символів: латиниця, цифри, «_», починається з літери'
-  }
-  if (RESERVED.has(v)) return 'Цей username зарезервовано'
-  return ''
 }
 
 // ─── Межі (web/src/lib/server/profile.ts) ───

@@ -71,7 +71,10 @@ regions, patches = [], []
 # Тулуб (найбільша область шерсті) — хвіст ховається під нього: заливку
 # хвоста тягнемо під тулуб, щоб хвіст гойдався без щілин.
 big = int(np.argmax(sizes)) + 1
-body_under = ndi.binary_dilation(lab == big, iterations=6)
+body_under = ndi.binary_dilation(lab == big, iterations=9)
+# Далеко від зовнішнього краю силуету: там продовження хвоста не визирне,
+# хоч би як хвіст гойдався.
+deep = ndi.distance_transform_edt(inside) > 28
 for j in range(1, n + 1):
     if sizes[j - 1] < 120:
         continue
@@ -82,12 +85,12 @@ for j in range(1, n + 1):
     for nm, share in (('eye', 0.45), ('plum', 0.45), ('tongue', 0.35)):
         if counts[nm] > share * tot:
             kind = nm
-    # Під лінії: розширити в чорнило (не за силует)
-    grown = ndi.binary_dilation(m, iterations=6) & (inside)
+    # Під лінії: розширити в чорнило — до середини лінії, не за її край
+    grown = ndi.binary_dilation(m, iterations=4) & (inside)
     is_tail = j != big and kind == 'fur' and m.sum() > 0.2 * sizes[big - 1]
     if is_tail:
         # Разом із лінією між хвостом і тулубом — одна зв'язна форма
-        grown |= ndi.binary_dilation(m, iterations=60) & (body_under | ink) & inside
+        grown |= ndi.binary_dilation(m, iterations=70) & body_under & deep
         gl, gn = ndi.label(grown)
         grown = gl == (np.argmax(ndi.sum(grown, gl, range(1, gn + 1))) + 1)
     for pts in outlines(grown):

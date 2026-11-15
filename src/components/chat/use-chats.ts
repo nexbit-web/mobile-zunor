@@ -160,19 +160,19 @@ const fold = (s: string) =>
 
 /**
  * Пошук у списку чатів (екран «Чати», лупа в шапці): спершу збіги в імені
- * чи @імені співрозмовника, далі — в останньому повідомленні. Порожній
+ * співрозмовника, далі — в останньому повідомленні. Порожній
  * запит — усі чати. Шукаємо на місці: список і так увесь у кеші.
  */
 export function searchChats(
   chats: ChatPreview[],
   query: string,
 ): ChatPreview[] {
-  const q = fold(query.trim().replace(/^@/, ''))
+  const q = fold(query.trim())
   if (!q) return chats
   const byName: ChatPreview[] = []
   const byText: ChatPreview[] = []
   for (const chat of chats) {
-    if (fold(`${chat.peer.name} ${chat.peer.username ?? ''}`).includes(q)) {
+    if (fold(chat.peer.name).includes(q)) {
       byName.push(chat)
     } else if (chat.lastMessageText && fold(chat.lastMessageText).includes(q)) {
       byText.push(chat)

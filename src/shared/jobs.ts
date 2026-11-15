@@ -55,7 +55,6 @@ export interface JobProposal {
   master: {
     id: string
     name: string | null
-    username: string | null
     avatar: string | null
     avgRating: number
     reviewsCount: number

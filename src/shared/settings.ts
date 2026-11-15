@@ -64,7 +64,6 @@ export interface MasterProfileData {
   user: {
     name: string | null
     email: string
-    username: string | null
     phone: string | null
     avatar: string | null
     avatarPublicId: string | null

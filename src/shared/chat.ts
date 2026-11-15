@@ -14,7 +14,6 @@ export type MessageType = 'TEXT' | 'PHOTO' | 'FILE'
 export interface ChatUser {
   id: string
   name: string
-  username: string | null
   avatar: string | null
   isVerified: boolean
 }

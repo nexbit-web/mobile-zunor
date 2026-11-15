@@ -1,9 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router'
-import * as WebBrowser from 'expo-web-browser'
-import { useEffect, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
+import { useState, type ReactNode } from 'react'
+import { Alert, Pressable, Text, View } from 'react-native'
 
-import { Glyph } from '@/components/icons/glyph'
 import { ServiceBadge } from '@/components/icons/service-icon'
 import { PhotoGrid } from '@/components/photo-grid'
 import { queryClient } from '@/components/providers'
@@ -26,9 +24,7 @@ import { RoundButton } from '@/components/ui/round-button'
 import { StatusPill } from '@/components/ui/status-pill'
 import { api, errorText } from '@/lib/api'
 import { authClient } from '@/lib/auth'
-import { SITE_URL } from '@/lib/config'
 import { confirmAction } from '@/lib/confirm'
-import { useColors } from '@/lib/theme'
 import { discardPortfolioPhoto, type Photo } from '@/lib/upload'
 import { SERVICES } from '@/shared/cleaning'
 import {
@@ -46,7 +42,6 @@ import {
   PREMISE_GROUPS,
   SERVICE_HINTS,
   TRAVEL_OPTIONS,
-  usernameProblem,
   VEHICLE_OPTIONS,
   verificationLook,
   type Crew,
@@ -64,7 +59,6 @@ interface Form {
   kind: MasterKind | null
   personCrew: PersonCrew | null
   name: string
-  username: string
   phone: string
   city: string
   district: string
@@ -87,7 +81,6 @@ function formOf(data: MasterProfileData): Form {
     kind: m?.crew === 'COMPANY' ? 'company' : m?.crew ? 'person' : null,
     personCrew: m?.crew === 'SOLO' || m?.crew === 'TEAM' ? m.crew : null,
     name: u.name ?? '',
-    username: u.username ?? '',
     phone: normalizePhone(u.phone ?? ''),
     city: u.city ?? '',
     district: u.district ?? '',
@@ -109,7 +102,6 @@ function snapshot(f: Form, needsDistrict: boolean): string {
   return JSON.stringify({
     ...f,
     name: f.name.trim(),
-    username: f.username.trim().toLowerCase(),
     district: needsDistrict ? f.district : '',
     description: f.description.trim(),
     portfolio: f.portfolio.map((p) => p.publicId),
@@ -159,30 +151,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
   const districtName =
     districts.find((d) => d.slug === form.district)?.name ?? ''
 
-  // ─── Username: формат тут, зайнятість — у сервера, з паузою ───
-  const uname = form.username.trim().toLowerCase()
-  const unameFormat = usernameProblem(uname)
-  const [taken, setTaken] = useState<'checking' | 'free' | 'taken' | null>(null)
-  useEffect(() => {
-    if (!editing || unameFormat || uname === (data.user.username ?? '')) {
-      setTaken(null)
-      return
-    }
-    setTaken('checking')
-    let live = true
-    const t = setTimeout(() => {
-      api<{ available: boolean }>(
-        `/api/user/username/check?username=${encodeURIComponent(uname)}`,
-      )
-        .then((r) => live && setTaken(r.available ? 'free' : 'taken'))
-        .catch(() => live && setTaken(null))
-    }, 400)
-    return () => {
-      live = false
-      clearTimeout(t)
-    }
-  }, [uname, unameFormat, editing, data.user.username])
-
   // ─── Помилки (ті самі, що в save() на сайті) ───
   const nameTrim = form.name.trim()
   const descLen = form.description.trim().length
@@ -195,8 +163,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
       : nameTrim.length < NAME_MIN || nameTrim.length > NAME_MAX
         ? `${company ? 'Назва' : 'Імʼя'}: ${NAME_MIN}–${NAME_MAX} символів`
         : '',
-    username:
-      unameFormat || (taken === 'taken' ? 'Цей username уже зайнято' : ''),
     phone: !form.phone
       ? 'Введіть номер телефону'
       : !phoneValid(form.phone)
@@ -231,8 +197,7 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
 
   const dirty =
     snapshot(form, needsDistrict) !== snapshot(formOf(data), needsDistrict)
-  const canSave =
-    (dirty || !saved) && !photo.busy && !uploading && taken !== 'checking'
+  const canSave = (dirty || !saved) && !photo.busy && !uploading
 
   // ─── Дії ───
 
@@ -279,7 +244,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
     const crew: Crew = company ? 'COMPANY' : (form.personCrew as PersonCrew)
     const body = {
       name: nameTrim,
-      username: uname,
       phone: '+380' + form.phone,
       city: form.city,
       district: needsDistrict ? form.district : null,
@@ -317,7 +281,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
             user: {
               ...old.user,
               name: body.name,
-              username: body.username,
               phone: body.phone,
               city: body.city,
               district: body.district,
@@ -457,8 +420,8 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
         <Section
           title={company ? 'Дані компанії' : 'Особисті дані'}
           footer={err(
-            errors.name || errors.username || errors.phone,
-            `Сторінка: zunor.org/@${uname || 'username'}. Телефон клієнт бачить у ваших пропозиціях. Зміни пройдуть повторну перевірку.`,
+            errors.name || errors.phone,
+            'Телефон клієнт бачить у ваших пропозиціях. Зміни пройдуть повторну перевірку.',
           )}
         >
           <FieldRow
@@ -473,24 +436,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
             autoCapitalize="words"
             autoComplete={company ? 'organization' : 'name'}
             textContentType={company ? 'organizationName' : 'name'}
-          />
-          <FieldRow
-            icon="at"
-            tint={TINT.purple}
-            label="Username"
-            labelWidth={84}
-            prefix="@"
-            value={form.username}
-            onChangeText={(t) =>
-              set({ username: t.toLowerCase().replace(/\s/g, '') })
-            }
-            placeholder="olena_clean"
-            maxLength={20}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="username"
-            textContentType="username"
-            right={unameFormat ? null : <UsernameState state={taken} />}
           />
           <FieldRow
             icon="phone"
@@ -714,24 +659,6 @@ export function MasterProfile({ data }: { data: MasterProfileData }) {
   )
 }
 
-/** Праворуч від username: перевіряємо / вільний ✓ / зайнятий ✕. */
-function UsernameState({
-  state,
-}: {
-  state: 'checking' | 'free' | 'taken' | null
-}) {
-  const c = useColors()
-  if (state === null) return null
-  if (state === 'checking') {
-    return <ActivityIndicator size="small" color={c.mutedForeground} />
-  }
-  return state === 'free' ? (
-    <Glyph name="check" size={16} color="#34c759" weight="semibold" />
-  ) : (
-    <Glyph name="close" size={15} color={c.destructive} weight="semibold" />
-  )
-}
-
 /** Картка-попередження: перевірку не пройдено, і чому. */
 function Rejected({ reason }: { reason: string }) {
   return (
@@ -786,7 +713,7 @@ function MasterView({
             {u.name || 'Без імені'}
           </Text>
           <Text numberOfLines={1} className="text-[15px] text-muted-foreground">
-            {u.username ? `@${u.username}` : u.email}
+            {u.email}
           </Text>
         </View>
         <StatusPill label={look.label} tone={look.tone} size="md" />
@@ -803,18 +730,6 @@ function MasterView({
           label="Телефон"
           value={phone ? `+380 ${formatPhone(phone)}` : 'Не вказано'}
         />
-        {u.username ? (
-          <Row
-            icon="at"
-            tint={TINT.purple}
-            label="Сторінка"
-            value={`@${u.username}`}
-            external
-            onPress={() =>
-              WebBrowser.openBrowserAsync(`${SITE_URL}/@${u.username}`)
-            }
-          />
-        ) : null}
       </Section>
 
       <Section title="Де ви працюєте">

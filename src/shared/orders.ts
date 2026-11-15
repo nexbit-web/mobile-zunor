@@ -7,7 +7,6 @@ export type OrderStatus = 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 export interface OrderPerson {
   id: string
   name: string | null
-  username: string | null
   avatar: string | null
 }
 

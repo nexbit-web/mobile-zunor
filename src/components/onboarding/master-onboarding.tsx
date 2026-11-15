@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { useState } from 'react'
+import { Pressable, Text, View } from 'react-native'
 
 import { Glyph } from '@/components/icons/glyph'
 import { ServiceBadge } from '@/components/icons/service-icon'
@@ -19,7 +19,7 @@ import {
 import { PortfolioEditor } from '@/components/settings/portfolio-editor'
 import { useAvatarEditor } from '@/components/settings/use-avatar-editor'
 import { Avatar } from '@/components/ui/avatar'
-import { TextField, type TextFieldHandle } from '@/components/ui/text-field'
+import { TextField } from '@/components/ui/text-field'
 import { api, errorText } from '@/lib/api'
 import { useColors } from '@/lib/theme'
 import { discardPortfolioPhoto, type Photo } from '@/lib/upload'
@@ -39,7 +39,6 @@ import {
   PREMISE_GROUPS,
   SERVICE_HINTS,
   TRAVEL_OPTIONS,
-  usernameProblem,
   VEHICLE_OPTIONS,
   type MasterKind,
   type PersonCrew,
@@ -112,14 +111,14 @@ function stepsFor(company: boolean): WizardStep[] {
           phase: 'you',
           title: 'Як називається компанія?',
           subtitle:
-            'Так вас бачитимуть клієнти — у пропозиціях, чаті й відгуках. Username стане адресою сторінки компанії.',
+            'Так вас бачитимуть клієнти — у пропозиціях, чаті й відгуках.',
         }
       : {
           id: 'name',
           phase: 'you',
           title: 'Як вас звати?',
           subtitle:
-            'Справжнє імʼя — клієнти довіряють людям, а не нікнеймам. Username стане адресою вашої сторінки.',
+            'Справжнє імʼя — клієнти довіряють людям, а не нікнеймам.',
         },
     company
       ? {
@@ -288,8 +287,6 @@ export function MasterOnboarding({
   const name = company ? companyTitle : personName
   const setName = company ? setCompanyTitle : setPersonName
 
-  const [username, setUsername] = useState(u.username ?? '')
-  const usernameRef = useRef<TextFieldHandle>(null)
   const [phone, setPhone] = useState(normalizePhone(u.phone ?? ''))
   const [place, setPlace] = useState({
     city: u.city ?? (data.cities.length === 1 ? data.cities[0].slug : ''),
@@ -336,35 +333,9 @@ export function MasterOnboarding({
   const [celebrating, setCelebrating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ─── Username: формат тут, зайнятість — у сервера, з паузою ───
-  const uname = username.trim().toLowerCase()
-  const unameFormat = usernameProblem(uname)
-  const [taken, setTaken] = useState<'checking' | 'free' | 'taken' | null>(null)
-  useEffect(() => {
-    if (unameFormat || uname === (u.username ?? '')) {
-      setTaken(null)
-      return
-    }
-    setTaken('checking')
-    let live = true
-    const t = setTimeout(() => {
-      api<{ available: boolean }>(
-        `/api/user/username/check?username=${encodeURIComponent(uname)}`,
-      )
-        .then((r) => live && setTaken(r.available ? 'free' : 'taken'))
-        // Не перевірили (мережа) — не тримаємо людину: сервер перевірить.
-        .catch(() => live && setTaken(null))
-    }, 400)
-    return () => {
-      live = false
-      clearTimeout(t)
-    }
-  }, [uname, unameFormat, u.username])
-
   // ─── Похідні ───
   const nameTrim = name.trim()
   const nameValid = nameTrim.length >= NAME_MIN && nameTrim.length <= NAME_MAX
-  const usernameOk = !unameFormat && taken !== 'taken' && taken !== 'checking'
   const districts = cityDistricts(data.districts, place.city)
   const needsDistrict = districts.length > 0
   const districtValid =
@@ -390,7 +361,7 @@ export function MasterOnboarding({
       case 'who':
         return kind !== null
       case 'name':
-        return nameValid && usernameOk
+        return nameValid
       case 'phone':
         return phoneValid(phone)
       case 'services':
@@ -439,9 +410,6 @@ export function MasterOnboarding({
         : 'Введіть імʼя'
       : `${company ? 'Назва' : 'Імʼя'}: ${NAME_MIN}–${NAME_MAX} символів`,
   )
-  const usernameError = touched.name
-    ? unameFormat || (taken === 'taken' ? 'Цей username уже зайнято' : null)
-    : null
   const phoneError = err(
     'phone',
     phoneValid(phone),
@@ -505,7 +473,6 @@ export function MasterOnboarding({
           method: 'POST',
           json: {
             name: nameTrim,
-            username: uname,
             phone: '+380' + phone,
             city: place.city,
             district: needsDistrict ? place.district : null,
@@ -579,48 +546,21 @@ export function MasterOnboarding({
         )
       case 'name':
         return (
-          <>
-            <TextField
-              focusOnMount
-              label={company ? 'Чисто Плюс' : 'Олена Коваленко'}
-              accessibilityLabel={company ? 'Назва компанії' : 'Імʼя'}
-              value={name}
-              onChangeText={setName}
-              error={nameError}
-              maxLength={NAME_MAX}
-              autoCapitalize="words"
-              autoComplete={company ? 'organization' : 'name'}
-              textContentType={company ? 'organizationName' : 'name'}
-              returnKeyType="next"
-              onSubmitEditing={() => usernameRef.current?.focus()}
-              submitBehavior="submit"
-            />
-            <TextField
-              ref={usernameRef}
-              prefix="@"
-              label={company ? 'chysto_plus' : 'olena_clean'}
-              accessibilityLabel="Username"
-              value={username}
-              onChangeText={(t) =>
-                setUsername(t.toLowerCase().replace(/\s/g, ''))
-              }
-              error={usernameError}
-              maxLength={20}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="username"
-              textContentType="username"
-              returnKeyType="next"
-              onSubmitEditing={next}
-              submitBehavior="submit"
-              trailing={unameFormat ? null : <UsernameState state={taken} />}
-            />
-            {/* Адреса сторінки — видимим рядком: людина саме її й придумує. */}
-            <Text className="pl-0.5 text-[14px] text-muted-foreground">
-              {company ? 'Сторінка компанії' : 'Ваша сторінка'}: zunor.org/@
-              {uname || 'username'}
-            </Text>
-          </>
+          <TextField
+            focusOnMount
+            label={company ? 'Чисто Плюс' : 'Олена Коваленко'}
+            accessibilityLabel={company ? 'Назва компанії' : 'Імʼя'}
+            value={name}
+            onChangeText={setName}
+            error={nameError}
+            maxLength={NAME_MAX}
+            autoCapitalize="words"
+            autoComplete={company ? 'organization' : 'name'}
+            textContentType={company ? 'organizationName' : 'name'}
+            returnKeyType="next"
+            onSubmitEditing={next}
+            submitBehavior="submit"
+          />
         )
       case 'photo':
         return (
@@ -826,13 +766,14 @@ export function MasterOnboarding({
                 >
                   {nameTrim}
                 </Text>
-                <Text
-                  numberOfLines={1}
-                  className="text-[15px] text-muted-foreground"
-                >
-                  @{uname}
-                  {cityName ? ` · ${cityName}` : ''}
-                </Text>
+                {cityName ? (
+                  <Text
+                    numberOfLines={1}
+                    className="text-[15px] text-muted-foreground"
+                  >
+                    {cityName}
+                  </Text>
+                ) : null}
               </View>
             </View>
 
@@ -980,27 +921,6 @@ function ReviewRow({
           Змінити
         </Text>
       </Pressable>
-    </View>
-  )
-}
-
-/** Праворуч від username: перевіряємо / вільний ✓ / зайнятий ✕. */
-function UsernameState({
-  state,
-}: {
-  state: 'checking' | 'free' | 'taken' | null
-}) {
-  const c = useColors()
-  if (state === null) return null
-  return (
-    <View className="size-11 items-center justify-center">
-      {state === 'checking' ? (
-        <ActivityIndicator size="small" color={c.mutedForeground} />
-      ) : state === 'free' ? (
-        <Glyph name="check" size={16} color="#34c759" weight="semibold" />
-      ) : (
-        <Glyph name="close" size={15} color={c.destructive} weight="semibold" />
-      )}
     </View>
   )
 }

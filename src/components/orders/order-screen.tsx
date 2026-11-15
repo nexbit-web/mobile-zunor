@@ -489,8 +489,7 @@ function Peer({ order, viewer }: { order: OrderDetail; viewer: Viewer }) {
   const c = useColors()
   const [opening, setOpening] = useState(false)
   const peer = viewer === 'client' ? order.master : order.client
-  const name =
-    peer.name || peer.username || (viewer === 'client' ? 'Майстер' : 'Клієнт')
+  const name = peer.name || (viewer === 'client' ? 'Майстер' : 'Клієнт')
   const phone = peer.phone?.trim() || null
   const done = viewer === 'client' ? order.master.completedOrders : 0
 

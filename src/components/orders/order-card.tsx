@@ -43,7 +43,7 @@ export function OrderCard({
   const service =
     typeof meta.service === 'string' ? serviceLabel(meta.service) : 'Прибирання'
   const peer = viewer === 'client' ? order.master : order.client
-  const peerName = peer?.name || peer?.username || 'Без імені'
+  const peerName = peer?.name || 'Без імені'
   const price = formatPrice(order.priceCents, order.currency)
   const tags = jobTags(meta)
   // Скасовані — пригашені: це вже історія.

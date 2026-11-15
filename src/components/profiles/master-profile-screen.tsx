@@ -37,8 +37,8 @@ import {
 
 /**
  * Профіль майстра — клієнтові, з пропозиції чи замовлення (власник: «щоб
- * клієнт міг подивитись рейтинг, портфоліо, опис»). Те саме, що публічна
- * сторінка майстра /@handle на сайті:
+ * клієнт міг подивитись рейтинг, портфоліо, опис»). Те саме, що профіль
+ * майстра на сайті (dashboard/master/[id]; публічної сторінки немає):
  *
  *   фото, імʼя й перевірка · хто (людина чи компанія), місто, відколи
  *   рейтинг · виконано · відгуки
@@ -118,7 +118,7 @@ export function MasterProfileScreen() {
 
 function MasterBody({ master: m }: { master: MasterProfile }) {
   const company = m.crew === 'COMPANY'
-  const name = m.name || m.username || (company ? 'Компанія' : 'Майстер')
+  const name = m.name || (company ? 'Компанія' : 'Майстер')
 
   return (
     <>
@@ -127,7 +127,6 @@ function MasterBody({ master: m }: { master: MasterProfile }) {
         avatar={m.avatar}
         name={name}
         verified={m.isVerified}
-        username={m.username}
         kind={crewKindLabel(m.crew)}
         line={placeLine(m.city, m.createdAt)}
       />

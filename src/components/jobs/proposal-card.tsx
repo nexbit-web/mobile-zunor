@@ -74,7 +74,7 @@ export function ProposalCard({
 }) {
   const c = useColors()
   const dark = useColorScheme() === 'dark'
-  const name = p.master.name || p.master.username || 'Майстер'
+  const name = p.master.name || 'Майстер'
   const price = formatPrice(p.priceCents, currency)
   const tone = mine ? (TONE[p.status] ?? 'live') : TONE[p.status]
   const phone = !mine ? (p.master.phone ?? null) : null

@@ -20,7 +20,6 @@ export interface ProfileReview {
 export interface MasterProfile {
   id: string
   name: string | null
-  username: string | null
   avatar: string | null
   bio: string | null
   /** Назва міста. */

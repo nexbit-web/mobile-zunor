@@ -86,18 +86,17 @@ const BANNER_AVATAR = 84
 const RING = 4
 
 /**
- * Шапка майстра — як на його сторінці на сайті (/@handle): угорі банер
- * категорії, аватар ліворуч наполовину на банері (кільцем кольору фону
- * відрізаний від картинки), під ним — імʼя з галочкою, @username і рядок
- * «хто · місто · відколи». Як профіль у Twitter: по центру шапка займала
- * б пів екрана.
+ * Шапка майстра — як у його профілі на сайті (dashboard/master/[id]): угорі
+ * банер категорії, аватар ліворуч наполовину на банері (кільцем кольору
+ * фону відрізаний від картинки), під ним — імʼя з галочкою і рядок «хто ·
+ * місто · відколи». Як профіль у Twitter: по центру шапка займала б пів
+ * екрана. Нікнейма немає: клієнти бачать імʼя.
  */
 export function BannerHero({
   banner,
   avatar,
   name,
   verified = false,
-  username,
   kind,
   line,
 }: {
@@ -106,7 +105,6 @@ export function BannerHero({
   avatar: string | null | undefined
   name: string
   verified?: boolean
-  username?: string | null
   kind?: string | null
   line: string
 }) {
@@ -149,11 +147,6 @@ export function BannerHero({
             </View>
           ) : null}
         </View>
-        {username ? (
-          <Text selectable className="text-[15px] text-muted-foreground">
-            @{username}
-          </Text>
-        ) : null}
         <View className="mt-1.5 flex-row flex-wrap items-center gap-x-2.5 gap-y-1.5">
           {kind ? (
             <View
