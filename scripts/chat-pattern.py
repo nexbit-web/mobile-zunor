@@ -1,393 +1,1329 @@
 """
-Узор шпалер чату застосунку: web/static/chat-pattern.svg (узор сайту) +
-знак Zunor контуром на місці кількох малюнків і маскот-кіт, що лежить на
-пузі (власник: «у тому ж стилі, лініями»). Пише
-src/components/chat/chat-pattern.ts. Кота готує chat-pattern-cat.py
-(chat-pattern-cat.txt).
+Узор шпалер чату — НАШ, намальований тут кодом (власник: узор Telegram
+брати не можна — авторське право; «перемалюймо під нас: прибирання,
+котик, наш знак», а далі — «щільно, різних розмірів, як у Telegram, і
+що завгодно: фрукти, ананас, банани — хаотично, аби красиво»). Жодного
+чужого малюнка: кожен предмет — шлях нижче (~57: прибирання, дім,
+котики, знак Zunor, фрукти, смаколики, усяке). Крім одного: закоханий
+кіт, що лежить на пузі з сердечками (LYING_CAT_*), — обведений за контуром
+з наліпки mascot/cat-love.source.json (власник: «просто по контуру обвести,
+без кольорів»); лежить двічі на плитку на своїх місцях.
 
-    python scripts/chat-pattern.py            # згенерувати
-    python scripts/chat-pattern.py --list     # малюнки-кандидати (розміри)
-    python scripts/chat-pattern.py --preview out.svg   # SVG для перегляду
+Пише три файли (той самий узор):
+    ../web/static/chat-pattern.svg                 — сайт (chat-background.svelte)
+    assets/images/chat-pattern.svg                 — застосунок у браузері (dev)
+    src/components/chat/chat-pattern.ts            — застосунок (Skia, рядком)
 
-Як: кожен <path> сайту — багато малюнків (контури, залиті чорним).
-Розбираємо шляхи на підконтури, групуємо ті, що перекриваються, у
-малюнки, вибираємо кілька підходящого розміру подалі один від одного й
-від країв плитки (вона повторюється), прибираємо їх і малюємо на їхньому
-місці знак Zunor обведеним контуром тієї самої товщини (LINE).
+    python scripts/chat-pattern.py                 # згенерувати
+    python scripts/chat-pattern.py --preview out.svg   # 2×2 плитки для перегляду
+
+Плитка 1440 × 2960 (як була — рендерери не міняються), безшовна: малюнок
+біля краю повторюється з протилежного боку. Лінії — штрих однакової
+товщини (LINE) з круглими кінцями, чорні: колір дають рендерери (soft-light
+на градієнті у світлій темі, градієнт по лініях — у темній).
+
+Розкладка — ярусами (TIERS), «дротиками»: спершу великі малюнки, у
+проміжки між ними — середні, далі дрібні, наприкінці дрібнота (іскорки,
+кружечки). Кожен тримає відстань за СВОЇМ радіусом (reach_of), з
+урахуванням повтору плитки — щільно й без накладань. Малюнок береться з
+«мішка» за вагою й ярусом (складні — лише великими), однакові поруч не
+стоять; нахил різний. Детерміновано (SEED): перезапуск дає той самий узор.
 """
 
-import io
-import json
 import math
 import os
-import re
+import random
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, '..', '..', 'web', 'static', 'chat-pattern.svg')
-OUT = os.path.join(HERE, '..', 'src', 'components', 'chat', 'chat-pattern.ts')
-CAT = os.path.join(HERE, 'chat-pattern-cat.txt')
+WEB_OUT = os.path.join(HERE, '..', '..', 'web', 'static', 'chat-pattern.svg')
+ASSET_OUT = os.path.join(HERE, '..', 'assets', 'images', 'chat-pattern.svg')
+TS_OUT = os.path.join(HERE, '..', 'src', 'components', 'chat', 'chat-pattern.ts')
 
 W, H = 1440, 2960
-#: Товщина ліній узору (кільце «o» сайту — ~2,5 одиниці).
-LINE = 2.6
-#: Скільки знаків на плитку і якого розміру малюнки замінюємо.
-COUNT = 6
-MIN_SIDE, MAX_SIDE = 66, 120
-#: Найбільша висота знака — як середній малюнок узору.
-LOGO_MAX = 104
-#: Від краю плитки — малюнок не має переходити на сусідню.
-MARGIN = 40
-#: Кіт — на місці великих широких малюнків (лежить, тож широкий).
-CATS = 2
-CAT_MIN_W, CAT_MAX_W = 150, 330
-CAT_MIN_H, CAT_MAX_H = 70, 230
-#: Від кота до найближчого знака — щоб не злипались.
-CAT_GAP = 200
-#: Нахил і дзеркало котів — по-різному, як малюнки узору.
-CAT_POSES = [(-6, 1), (5, -1), (-3, -1), (7, 1)]
-#: Нахил знаків — як у малюнків узору, різний.
-ANGLES = [-14, 10, -6, 16, -10, 8, -18, 12]
+SEED = 7
+#: Товщина ліній у одиницях плитки (на телефоні плитка 460 px → ~1 px) —
+#: однакова в малих і великих малюнків.
+LINE = 3.1
+#: Нахил малюнків — різний, у межах ±TILT°. Розміри й щільність — TIERS.
+TILT = 24
 
-#: Знак Zunor (components/zunor-mark.tsx, web/static/logo.svg), 393 × 411.
-LOGO_W, LOGO_H = 393, 411
+# ─── Примітиви (поле малюнка −50…50, y — вниз) ─────────────────────────
+
+
+def f(v):
+    s = ('%.1f' % v).rstrip('0').rstrip('.')
+    return '0' if s in ('-0', '') else s
+
+
+def circle(cx, cy, r):
+    return 'M%s %sa%s %s 0 1 0 %s 0a%s %s 0 1 0 %s 0' % (
+        f(cx - r), f(cy), f(r), f(r), f(2 * r), f(r), f(r), f(-2 * r))
+
+
+def ellipse(cx, cy, rx, ry):
+    return 'M%s %sa%s %s 0 1 0 %s 0a%s %s 0 1 0 %s 0' % (
+        f(cx - rx), f(cy), f(rx), f(ry), f(2 * rx), f(rx), f(ry), f(-2 * rx))
+
+
+#: Найменше заокруглення кутів прямокутника — «мʼяко, ніжно» (власник).
+RRECT_MIN = 5.5
+
+
+def rrect(x, y, w, h, r):
+    r = min(max(r, RRECT_MIN), w / 2, h / 2)
+    return ('M%s %sL%s %sQ%s %s %s %sL%s %sQ%s %s %s %sL%s %sQ%s %s %s %s'
+            'L%s %sQ%s %s %s %sZ') % tuple(map(f, (
+                x + r, y, x + w - r, y, x + w, y, x + w, y + r,
+                x + w, y + h - r, x + w, y + h, x + w - r, y + h,
+                x + r, y + h, x, y + h, x, y + h - r,
+                x, y + r, x, y, x + r, y)))
+
+
+def line(*pts):
+    return 'M' + 'L'.join('%s %s' % (f(x), f(y)) for x, y in pts)
+
+
+def sparkle(cx, cy, s):
+    """Іскорка: чотири промені з увігнутими боками."""
+    return ('M%s %sQ%s %s %s %sQ%s %s %s %sQ%s %s %s %sQ%s %s %s %sZ' %
+            tuple(map(f, (cx, cy - s, cx, cy, cx + s, cy, cx, cy, cx, cy + s,
+                          cx, cy, cx - s, cy, cx, cy, cx, cy - s))))
+
+
+def star(cx, cy, ro, ri, n=5):
+    pts = []
+    for i in range(n * 2):
+        a = -math.pi / 2 + i * math.pi / n
+        r = ro if i % 2 == 0 else ri
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return line(*pts) + 'Z'
+
+
+def droplet(cx, cy, s):
+    """Крапля висотою ~2s, вістрям угору."""
+    p = lambda x, y: '%s %s' % (f(cx + x * s), f(cy + y * s))
+    return ('M%sC%s %s %sC%s %s %sC%s %s %sC%s %s %sZ' % (
+        p(0, -1.1), p(0.35, -0.6), p(0.75, -0.2), p(0.75, 0.3),
+        p(0.75, 0.75), p(0.4, 1), p(0, 1), p(-0.4, 1), p(-0.75, 0.75),
+        p(-0.75, 0.3), p(-0.75, -0.2), p(-0.35, -0.6), p(0, -1.1)))
+
+
+def rotate_path(d, deg):
+    """Повернути абсолютний шлях (M L Q C Z) навколо 0 — для нахилених
+    предметів (віник, швабра), щоб нахил був частиною малюнка."""
+    a = math.radians(deg)
+    ca, sa = math.cos(a), math.sin(a)
+    out, num, nums = [], '', []
+    import re
+    tokens = re.findall(r'[MLQCZ]|-?\d+(?:\.\d+)?', d)
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t in 'MLQCZ':
+            out.append(t)
+            i += 1
+            continue
+        x, y = float(tokens[i]), float(tokens[i + 1])
+        out.append('%s %s' % (f(x * ca - y * sa), f(x * sa + y * ca)))
+        i += 2
+    s = ''
+    for tok in out:
+        if tok in 'MLQCZ':
+            s += tok
+        else:
+            s += tok if s[-1:] in 'MLQCZ' else ' ' + tok
+    return s
+
+
+# ─── Знак Zunor (components/zunor-mark.tsx, web/static/logo.svg), 393 × 411 ─
 LOGO = (
     'M168.1 405.9C123.4 401.9 77.8 385.3 50.4 363.0C-11.3 312.5 -10.6 211.2 52.2 115.9C66.7 93.8 77.9 80.0 96.0 61.9C129.1 28.8 143.2 22.7 151.1 38.1C153.1 42.2 153.2 43.1 152.5 61.9C151.8 81.0 151.8 81.6 154.0 84.2C155.6 86.4 157.0 87.0 159.8 87.0C164.3 87.0 166.6 85.1 174.6 75.0C195.6 48.4 230.7 11.2 238.7 7.1C241.5 5.7 244.8 5.0 248.6 5.0C254.1 5.0 254.5 5.2 259.0 9.8C263.2 13.9 264.1 15.7 266.8 24.5C272.0 41.5 279.6 70.0 288.1 104.5C292.5 122.6 296.8 138.7 297.6 140.2C299.4 143.6 301.9 145.0 306.2 145.0C310.9 145.0 313.2 143.2 328.2 127.6C350.0 104.9 356.1 100.9 363.7 104.7C370.3 108.0 372.7 112.3 376.6 127.6C403.3 233.6 386.4 316.1 328.1 364.3C289.1 396.7 231.8 411.6 168.1 405.9Z'
     'M187.9 348.0C200.0 341.5 213.5 322.9 218.4 305.9C220.5 298.9 226.0 255.8 226.0 246.9C226.0 233.2 219.4 215.3 211.3 207.2C191.4 187.3 161.7 202.2 147.0 239.4C140.8 255.2 138.8 265.7 138.3 286.0C137.6 311.2 139.9 323.1 148.2 337.0C151.6 342.7 159.0 349.0 164.4 350.8C170.5 352.9 181.0 351.7 187.9 348.0Z'
     'M67.6 319.0C69.9 317.8 73.7 314.9 75.9 312.5C80.9 307.1 89.3 290.4 92.0 280.8C94.0 273.6 99.0 233.0 99.0 224.4C99.0 212.5 92.8 194.4 86.1 186.8C80.0 179.8 70.0 177.9 61.3 182.1C47.3 188.9 34.4 216.1 31.1 246.3C25.8 294.0 44.0 330.4 67.6 319.0Z'
 )
 
-ARGS = {'M': 2, 'L': 2, 'H': 1, 'V': 1, 'C': 6, 'S': 4, 'Q': 4, 'T': 2,
-        'A': 7, 'Z': 0}
+
+def logo(height=72):
+    import re
+    s = height / 411
+    toks = re.findall(r'[MCZ]|-?\d+(?:\.\d+)?', LOGO)
+    out, xy = [], []
+    for t in toks:
+        if t in 'MCZ':
+            out.append(t)
+        else:
+            xy.append(float(t))
+            if len(xy) == 2:
+                out.append('%s %s' % (f((xy[0] - 196.5) * s), f((xy[1] - 205.5) * s)))
+                xy = []
+    d = ''
+    for tok in out:
+        d += tok if (tok in 'MCZ' or d[-1:] in 'MCZ') else ' ' + tok
+    return d
 
 
-def fmt(v):
-    s = ('%.2f' % v).rstrip('0').rstrip('.')
-    return '0' if s in ('-0', '') else s
+# ─── Малюнки ─────────────────────────────────────────────────────────────
+
+def bucket():
+    return ''.join([
+        'M-28 -6L-23 36Q-22 41 -17 41L17 41Q22 41 23 36L28 -6',
+        rrect(-32, -12, 64, 8, 3),
+        'M-27 -12Q0 -46 27 -12',
+        line((-25, 12), (25, 12)),
+        circle(-13, -20, 6), circle(1, -23, 8), circle(15, -19, 5),
+    ])
 
 
-NUM = re.compile(r'[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?')
-CMDS = 'MmLlHhVvCcSsQqTtAaZz'
+def spray():
+    return ''.join([
+        'M-14 0L-16 38Q-16 44 -10 44L10 44Q16 44 16 38L14 0Z',
+        line((-8, 0), (-8, -10), (8, -10), (8, 0)),
+        'M-11 -10L-11 -21Q-11 -26 -6 -26L16 -26L22 -20L22 -17L8 -17',
+        'M13 -17Q15 -8 10 -5',
+        rrect(-8, 12, 16, 18, 3),
+        circle(31, -25, 1.6), circle(35, -18, 1.6), circle(30, -11, 1.6),
+    ])
 
 
-def tokens(d):
-    """Команди й числа шляху. У дузі прапорці — по одній цифрі: стиснений
-    запис «a5 5 0 01-5 5» інакше прочитався б як число 01."""
-    out = []
-    i = 0
-    cmd = None
-    arg = 0
-    while i < len(d):
-        ch = d[i]
-        if ch.isspace() or ch == ',':
-            i += 1
-            continue
-        if ch in CMDS:
-            out.append((ch, i, i + 1))
-            cmd = ch.upper()
-            arg = 0
-            i += 1
-            continue
-        if cmd == 'A' and arg % 7 in (3, 4):
-            out.append((ch, i, i + 1))
-            arg += 1
-            i += 1
-            continue
-        m = NUM.match(d, i)
-        if not m:
-            raise ValueError('bad path at %d: %r' % (i, d[i:i + 20]))
-        out.append((m.group(), m.start(), m.end()))
-        arg += 1
-        i = m.end()
-    return out
+def sponge():
+    return ''.join([
+        rrect(-30, -16, 60, 34, 9),
+        line((-30, -5), (30, -5)),
+        circle(-15, 7, 4), circle(0, 11, 2.8), circle(14, 5, 4.2),
+        circle(-3, 2, 2.2), circle(22, 11, 2.2),
+        circle(22, -28, 5), circle(32, -21, 3),
+    ])
 
 
-def arc_points(x0, y0, x1, y1, r):
-    """Рамка дуги без повного розрахунку: кінці й «горб» в обидва боки."""
-    c = math.hypot(x1 - x0, y1 - y0)
-    if c == 0:
-        return [(x1, y1)]
-    half = c / 2
-    sag = r - math.sqrt(r * r - half * half) if r >= half else half
-    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-    nx, ny = -(y1 - y0) / c, (x1 - x0) / c
-    return [(x1, y1), (mx + nx * sag, my + ny * sag),
-            (mx - nx * sag, my - ny * sag)]
+def broom():
+    return rotate_path(''.join([
+        'M0 -46L0 6',
+        'M-8 6L8 6L8 14L-8 14Z',
+        'M-8 14L-19 44L19 44L8 14',
+        'M-5 22L-10 42M0 22L0 42M5 22L10 42',
+    ]), 28)
 
 
-def subpaths(d):
-    """Підконтури шляху: (текст із абсолютним M на початку, точки)."""
-    toks = tokens(d)
-    out = []
-    i = 0
-    cx = cy = sx = sy = 0.0
-    cur = None
-    while i < len(toks):
-        cmd = toks[i][0]
-        if cmd not in CMDS:
-            raise ValueError('number without command at %d' % toks[i][1])
-        i += 1
-        up = cmd.upper()
-        rel = cmd != up
-        n = ARGS[up]
-        if up == 'Z':
-            cx, cy = sx, sy
-            continue
-        first = True
-        while i + n <= len(toks) and toks[i][0] not in CMDS:
-            vals = [float(t[0]) for t in toks[i:i + n]]
-            if up == 'M' and first:
-                x, y = vals
-                if rel:
-                    x += cx
-                    y += cy
-                cx, cy, sx, sy = x, y, x, y
-                cur = {'start': (x, y), 'head_end': toks[i + n - 1][2],
-                       'points': [(x, y)], 'implicit': 'l' if rel else 'L'}
-                out.append(cur)
-                i += n
-                first = False
-                continue
-            if up in ('M', 'L', 'T'):
-                x, y = vals
-                if rel:
-                    x += cx
-                    y += cy
-                pts, nxt = [(x, y)], (x, y)
-            elif up == 'H':
-                nxt = (vals[0] + (cx if rel else 0), cy)
-                pts = [nxt]
-            elif up == 'V':
-                nxt = (cx, vals[0] + (cy if rel else 0))
-                pts = [nxt]
-            elif up in ('C', 'S', 'Q'):
-                pairs = [(vals[k], vals[k + 1]) for k in range(0, n, 2)]
-                pts = [((px + cx, py + cy) if rel else (px, py))
-                       for px, py in pairs]
-                nxt = pts[-1]
-            else:  # A
-                x, y = vals[5], vals[6]
-                if rel:
-                    x += cx
-                    y += cy
-                r = max(abs(vals[0]), abs(vals[1]))
-                pts, nxt = arc_points(cx, cy, x, y, r), (x, y)
-            cur['points'].extend(pts)
-            cx, cy = nxt
-            i += n
-    # Текст кожного підконтуру: «M x y» + решта як була (відносні команди
-    # після M залежать лише від точок цього ж підконтуру).
-    starts = [t[1] for t in toks if t[0] in 'Mm'] + [len(d)]
-    for k, sp in enumerate(out):
-        tail = d[sp['head_end']:starts[k + 1]]
-        head = 'M%s %s' % (fmt(sp['start'][0]), fmt(sp['start'][1]))
-        stripped = tail.lstrip()
-        if stripped and stripped[0] not in 'MmLlHhVvCcSsQqTtAaZz':
-            # Після «m x y» ще пари — це неявні lineto.
-            tail = sp['implicit'] + stripped
-        sp['text'] = head + tail
-        xs = [p[0] for p in sp['points']]
-        ys = [p[1] for p in sp['points']]
-        sp['box'] = (min(xs), min(ys), max(xs), max(ys))
-    return out
+def mop():
+    # Швабра з бахромою: пасма віялом донизу, кінці хвилясті.
+    strands = []
+    for i in range(7):
+        x0 = -15 + i * 5
+        x1 = -27 + i * 9
+        bend = 5 if i % 2 else -5
+        strands.append('M%s 14Q%s 30 %s 42Q%s 46 %s 44' % (
+            f(x0), f((x0 + x1) / 2 + bend), f(x1), f(x1 + 2), f(x1 + 4)))
+    return rotate_path(''.join([
+        'M0 -46L0 6',
+        'M-18 6L18 6Q20 6 20 9L20 12Q20 14 18 14L-18 14Q-20 14 -20 12L-20 9Q-20 6 -18 6Z',
+    ] + strands), -22)
 
 
-def doodles(paths):
-    """Малюнки: підконтури, чиї рамки перекриваються (union-find)."""
-    items = [(pi, sp) for pi, sps in enumerate(paths) for sp in sps]
-    parent = list(range(len(items)))
-
-    def find(a):
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
-
-    order = sorted(range(len(items)), key=lambda k: items[k][1]['box'][0])
-    active = []
-    for k in order:
-        b = items[k][1]['box']
-        active = [j for j in active if items[j][1]['box'][2] + 3 >= b[0]]
-        for j in active:
-            c = items[j][1]['box']
-            if b[1] <= c[3] + 3 and c[1] <= b[3] + 3:
-                parent[find(j)] = find(k)
-        active.append(k)
-    groups = {}
-    for k in range(len(items)):
-        groups.setdefault(find(k), []).append(k)
-    out = []
-    for ks in groups.values():
-        boxes = [items[k][1]['box'] for k in ks]
-        box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
-               max(b[2] for b in boxes), max(b[3] for b in boxes))
-        out.append({'members': ks, 'box': box})
-    return items, out
+def squeegee():
+    return ''.join([
+        'M0 -6L0 -36',
+        rrect(-5, -46, 10, 16, 5),
+        rrect(-32, -6, 64, 10, 4),
+        line((-29, 9), (29, 9)),
+        droplet(-16, 26, 6), droplet(10, 32, 5),
+    ])
 
 
-def torus(a, b):
-    dx = abs(a[0] - b[0])
-    dy = abs(a[1] - b[1])
-    return math.hypot(min(dx, W - dx), min(dy, H - dy))
+def glove():
+    return ''.join([
+        'M-14 24L-15 4Q-28 -2 -27 -12Q-26 -19 -19 -15L-12 -7L-12 -31'
+        'Q-12 -36 -7.5 -36Q-3 -36 -3 -31L-3 -14L-3 -35Q-3 -40 1.5 -40'
+        'Q6 -40 6 -35L6 -14L6 -29Q6 -34 10.5 -34Q15 -34 15 -29L15 4'
+        'Q15 14 14 24',
+        rrect(-17, 24, 34, 16, 3),
+        line((-9, 28), (-9, 36)), line((0, 28), (0, 36)), line((9, 28), (9, 36)),
+    ])
 
 
-def pick(groups):
-    """COUNT малюнків підходящого розміру, якомога далі один від одного."""
-    cand = []
-    for g in groups:
-        x0, y0, x1, y1 = g['box']
-        w, h = x1 - x0, y1 - y0
-        if not (MIN_SIDE <= w <= MAX_SIDE and MIN_SIDE <= h <= MAX_SIDE):
-            continue
-        if x0 < MARGIN or y0 < MARGIN or x1 > W - MARGIN or y1 > H - MARGIN:
-            continue
-        # Не надто видовжені — знак майже квадратний.
-        if max(w, h) / min(w, h) > 1.45:
-            continue
-        g['center'] = ((x0 + x1) / 2, (y0 + y1) / 2)
-        cand.append(g)
-    # Перший — найближчий до середини плитки, далі — найдальший від уже
-    # вибраних (на плитці, що повторюється).
-    cand.sort(key=lambda g: math.hypot(g['center'][0] - W / 2,
-                                       g['center'][1] - H / 2))
-    chosen = cand[:1]
-    while len(chosen) < COUNT and len(chosen) < len(cand):
-        best = max((g for g in cand if g not in chosen),
-                   key=lambda g: min(torus(g['center'], c['center'])
-                                     for c in chosen))
-        chosen.append(best)
-    return chosen
+def bubbles():
+    return ''.join([
+        circle(-10, 8, 17), circle(17, -14, 11), circle(22, 17, 6), circle(-21, -23, 5),
+        'M-20 2Q-19 -5 -13 -8', 'M10 -17Q11 -21 15 -22',
+    ])
 
 
-def pick_cats(groups, logos):
-    """CATS великих широких малюнків подалі від знаків і один від одного."""
-    cand = []
-    for g in groups:
-        x0, y0, x1, y1 = g['box']
-        w, h = x1 - x0, y1 - y0
-        if not (CAT_MIN_W <= w <= CAT_MAX_W and CAT_MIN_H <= h <= CAT_MAX_H):
-            continue
-        if w / h < 1.15:
-            continue
-        if x0 < 30 or y0 < 30 or x1 > W - 30 or y1 > H - 30:
-            continue
-        c = ((x0 + x1) / 2, (y0 + y1) / 2)
-        if logos and min(torus(c, l['center']) for l in logos) < CAT_GAP:
-            continue
-        g['center'] = c
-        cand.append(g)
-    cand.sort(key=lambda g: -(g['box'][2] - g['box'][0]))
-    chosen = cand[:1]
-    while len(chosen) < CATS and len(chosen) < len(cand):
-        chosen.append(max((g for g in cand if g not in chosen),
-                          key=lambda g: min(torus(g['center'], c['center'])
-                                            for c in chosen)))
-    return chosen
+def duster():
+    parts = ['M0 44L0 6', rrect(-4, 24, 8, 20, 4)]
+    for a in (-50, -25, 0, 25, 50):
+        r = math.radians(a)
+        tip = (math.sin(r) * 40, 6 - math.cos(r) * 40)
+        mid = (math.sin(r) * 22, 6 - math.cos(r) * 22)
+        nx, ny = math.cos(r) * 10, math.sin(r) * 10
+        parts.append('M0 6Q%s %s %s %sQ%s %s 0 6' % (
+            f(mid[0] - nx), f(mid[1] - ny), f(tip[0]), f(tip[1]),
+            f(mid[0] + nx), f(mid[1] + ny)))
+    return ''.join(parts)
 
 
-def load_cat():
-    lines = io.open(CAT, encoding='utf-8').read().splitlines()
-    w, h = (float(v) for v in lines[1].split())
-    return w, h, lines[2]
+def vacuum():
+    # Пилосос на колесах: корпус ліворуч, шланг дугою, трубка до щітки.
+    return ''.join([
+        rrect(-40, 2, 40, 28, 13),
+        'M-30 2Q-20 -9 -10 2',
+        circle(-26, 31, 6),
+        'M0 13Q14 13 16 -1Q18 -22 30 -30',
+        line((30, -30), (34, 25)),
+        rrect(22, 25, 24, 8, 3),
+    ])
 
 
-def cat_group(cats):
-    w, h, d = load_cat()
+def window():
+    return ''.join([
+        rrect(-28, -34, 56, 66, 5),
+        line((0, -34), (0, 32)), line((-28, -2), (28, -2)),
+        line((-35, 32), (35, 32)),
+        sparkle(-13, -18, 7), sparkle(14, 14, 5),
+    ])
+
+
+def house():
+    return ''.join([
+        line((-36, 2), (0, -32), (36, 2)),
+        line((-28, -6), (-28, 34), (28, 34), (28, -6)),
+        'M-9 34L-9 15Q-9 12 -6 12L6 12Q9 12 9 15L9 34',
+        line((14, -18), (14, -30), (23, -30), (23, -10)),
+        circle(17, 6, 5),
+    ])
+
+
+def key():
+    return ''.join([
+        circle(-24, 0, 14), circle(-24, 0, 5),
+        line((-10, 0), (36, 0)), line((30, 0), (30, 10)), line((22, 0), (22, 7)),
+    ])
+
+
+def washer():
+    return ''.join([
+        rrect(-30, -38, 60, 76, 8),
+        line((-30, -22), (30, -22)),
+        circle(19, -30, 3.5), line((-22, -30), (-6, -30)),
+        circle(0, 10, 21), circle(0, 10, 14),
+        'M-9 12Q-4 7 1 12Q6 17 10 12',
+    ])
+
+
+def basket():
+    return ''.join([
+        'M-32 -8L32 -8L26 34Q25 38 21 38L-21 38Q-25 38 -26 34Z',
+        line((-29, 8), (29, 8)), line((-27, 22), (27, 22)),
+        line((-12, -8), (-10, 38)), line((12, -8), (10, 38)),
+        'M-20 -8Q-17 -24 -2 -20Q12 -27 20 -8',
+    ])
+
+
+def plant():
+    return ''.join([
+        'M-17 10L-13 40L13 40L17 10',
+        rrect(-21, 3, 42, 8, 2),
+        'M0 3L0 -26',
+        'M0 -6Q-24 -12 -27 -33Q-6 -31 0 -6',
+        'M0 -15Q23 -20 27 -40Q5 -39 0 -15',
+        'M0 -26Q-7 -39 0 -48Q7 -39 0 -26',
+    ])
+
+
+def iron():
+    return ''.join([
+        'M-34 22L32 22Q38 22 36 14Q30 -12 2 -12L-28 -12Q-34 -12 -34 -4Z',
+        line((-28, 12), (32, 12)),
+        'M-22 -12Q-24 -32 -4 -32L12 -32Q20 -32 18 -18',
+        'M30 -24Q34 -30 30 -36M38 -18Q42 -24 38 -30',
+    ])
+
+
+def soap():
+    return ''.join([
+        rrect(-28, -10, 56, 30, 12),
+        'M-17 1Q-14 -4 -6 -4',
+        circle(20, -24, 6), circle(31, -15, 3.5), circle(8, -30, 3),
+    ])
+
+
+def cat_sitting():
+    return ''.join([
+        # Голова з вушками
+        'M-17 -12Q-21 -24 -16 -32L-17 -46L-6 -37Q0 -39 6 -37L17 -46L16 -32'
+        'Q21 -24 17 -12Q9 -4 0 -4Q-9 -4 -17 -12Z',
+        # Тулуб, лапки, хвіст
+        'M-9 -5Q-24 8 -22 30Q-21 42 -10 42L10 42Q21 42 22 30Q24 8 9 -5',
+        line((-5, 27), (-5, 41)), line((5, 27), (5, 41)),
+        'M21 35Q38 37 38 18Q38 6 30 4',
+        # Мордочка: очі, носик, вуса
+        circle(-7, -21, 1.6), circle(7, -21, 1.6),
+        'M-2 -15L2 -15L0 -13Z',
+        line((-10, -13), (-23, -15)), line((-10, -11), (-23, -8)),
+        line((10, -13), (23, -15)), line((10, -11), (23, -8)),
+    ])
+
+
+def cat_face():
+    return ''.join([
+        'M-28 10Q-34 -8 -26 -20L-27 -42L-10 -28Q0 -31 10 -28L27 -42L26 -20'
+        'Q34 -8 28 10Q16 24 0 24Q-16 24 -28 10Z',
+        # Очі-дужки: задоволений
+        'M-16 -4Q-11 -11 -6 -4', 'M6 -4Q11 -11 16 -4',
+        'M-3 4L3 4L0 7Z',
+        'M0 7Q-3 12 -8 10', 'M0 7Q3 12 8 10',
+        line((-14, 4), (-36, 1)), line((-14, 8), (-35, 12)),
+        line((14, 4), (36, 1)), line((14, 8), (35, 12)),
+    ])
+
+
+def paw():
+    return ''.join([
+        'M-15 14Q-16 1 0 0Q16 1 15 14Q13 24 0 22Q-13 24 -15 14Z',
+        ellipse(-19, -8, 5.5, 7), ellipse(-7, -18, 5.5, 7),
+        ellipse(7, -18, 5.5, 7), ellipse(19, -8, 5.5, 7),
+    ])
+
+
+def heart():
+    return ('M0 28C-10 20 -32 6 -32 -10C-32 -24 -18 -30 -8 -24C-4 -22 -1 -18 0 -14'
+            'C1 -18 4 -22 8 -24C18 -30 32 -24 32 -10C32 6 10 20 0 28Z')
+
+
+def chat():
+    return ''.join([
+        'M-20 -26L20 -26Q34 -26 34 -12L34 6Q34 20 20 20L-6 20L-20 32L-18 20'
+        'Q-34 20 -34 6L-34 -12Q-34 -26 -20 -26Z',
+        circle(-13, -3, 2.6), circle(0, -3, 2.6), circle(13, -3, 2.6),
+    ])
+
+
+def calendar():
+    return ''.join([
+        rrect(-30, -26, 60, 58, 7),
+        line((-30, -10), (30, -10)),
+        line((-14, -34), (-14, -20)), line((14, -34), (14, -20)),
+        line((-12, 12), (-3, 21), (14, 2)),
+    ])
+
+
+def rating():
+    return star(0, 2, 34, 15)
+
+
+def drop():
+    return droplet(0, 0, 32) + 'M-13 8Q-13 18 -6 22'
+
+
+def detergent():
+    return ''.join([
+        'M-20 44L-20 -8Q-20 -19 -10 -21L-7 -30L7 -30L10 -21Q22 -19 22 -6L22 44Z',
+        rrect(-9, -40, 18, 10, 2),
+        'M8 -8Q17 -8 17 2Q17 12 8 12',
+        rrect(-14, 18, 26, 16, 3),
+    ])
+
+
+def mug():
+    return ''.join([
+        'M-24 -10L-22 30Q-22 36 -16 36L14 36Q20 36 20 30L22 -10Z',
+        'M21 0Q36 0 36 11Q36 22 20 22',
+        'M-8 -18Q-14 -26 -8 -34', 'M6 -18Q0 -26 6 -34',
+    ])
+
+
+def clock():
+    return ''.join([
+        circle(0, 0, 32), line((0, -18), (0, 0), (13, 7)),
+        line((0, -32), (0, -26)), line((32, 0), (26, 0)),
+        line((0, 32), (0, 26)), line((-32, 0), (-26, 0)),
+    ])
+
+
+def sparkles():
+    return sparkle(-8, 4, 22) + sparkle(20, -20, 9) + sparkle(22, 22, 6)
+
+
+def zunor():
+    return logo()
+
+
+# ─── Ще малюнки: фрукти, смаколики, усяке — «хаотично, аби красиво» ─────
+
+def smooth_closed(pts):
+    """Плавний замкнений контур крізь точки (Catmull-Rom → кубічні)."""
+    n = len(pts)
+    d = 'M%s %s' % (f(pts[0][0]), f(pts[0][1]))
+    for i in range(n):
+        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[(i + 1) % n], pts[(i + 2) % n]
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        d += 'C%s %s %s %s %s %s' % tuple(map(f, (c1[0], c1[1], c2[0], c2[1], p2[0], p2[1])))
+    return d + 'Z'
+
+
+def smooth_open(pts):
+    d = 'M%s %s' % (f(pts[0][0]), f(pts[0][1]))
+    n = len(pts)
+    for i in range(n - 1):
+        p0 = pts[max(i - 1, 0)]; p1 = pts[i]; p2 = pts[i + 1]; p3 = pts[min(i + 2, n - 1)]
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        d += 'C%s %s %s %s %s %s' % tuple(map(f, (c1[0], c1[1], c2[0], c2[1], p2[0], p2[1])))
+    return d
+
+
+def arc_pts(cx, cy, r, a0, a1, n=16):
+    return [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
+             cy + r * math.sin(math.radians(a0 + (a1 - a0) * i / n))) for i in range(n + 1)]
+
+
+def chord(cx, cy, rx, ry, k, c):
+    """Відрізок прямої y − cy = k·(x − cx) + c усередині еліпса."""
+    A = 1 / rx ** 2 + k * k / ry ** 2
+    B = 2 * k * c / ry ** 2
+    C = c * c / ry ** 2 - 1
+    D = B * B - 4 * A * C
+    if D <= 0:
+        return ''
+    x1 = (-B - math.sqrt(D)) / (2 * A)
+    x2 = (-B + math.sqrt(D)) / (2 * A)
+    return line((cx + x1, cy + k * x1 + c), (cx + x2, cy + k * x2 + c))
+
+
+def leaf_shape(bx, by, deg, length, width):
+    a = math.radians(deg)
+    ux, uy = math.sin(a), -math.cos(a)
+    nx, ny = -uy, ux
+    tip = (bx + ux * length, by + uy * length)
+    m = (bx + ux * length * 0.5, by + uy * length * 0.5)
+    return 'M%s %sQ%s %s %s %sQ%s %s %s %sZ' % tuple(map(f, (
+        bx, by, m[0] + nx * width, m[1] + ny * width, tip[0], tip[1],
+        m[0] - nx * width, m[1] - ny * width, bx, by)))
+
+
+def pineapple():
+    parts = [ellipse(0, 14, 20, 27)]
+    for c in (-18, 0, 18):
+        parts.append(chord(0, 14, 20, 27, 1.1, c))
+        parts.append(chord(0, 14, 20, 27, -1.1, c))
+    for deg, ln in ((-42, 20), (-20, 27), (0, 31), (20, 27), (42, 20)):
+        parts.append(leaf_shape(0, -12, deg, ln, 4.5))
+    return ''.join(parts)
+
+
+def banana():
+    return ''.join([
+        'M-30 -16Q-28 26 32 20Q37 19 34 13Q-8 13 -22 -18Z',
+        'M-30 -16L-34 -24Q-30 -28 -26 -22L-22 -18',
+        'M-24 -6Q-17 14 22 16',
+    ])
+
+
+def apple():
+    return ''.join([
+        'M0 -14C-10 -22 -34 -18 -32 6C-30 28 -14 40 0 32C14 40 30 28 32 6C34 -18 10 -22 0 -14Z',
+        'M0 -14Q2 -26 6 -32',
+        'M4 -25Q16 -36 26 -30Q16 -19 4 -25Z',
+        'M-20 0Q-22 10 -15 18',
+    ])
+
+
+def cherries():
+    return ''.join([
+        circle(-14, 22, 11), circle(14, 26, 11),
+        'M-14 11Q-8 -12 8 -32', 'M14 15Q12 -8 8 -32',
+        'M8 -32Q22 -42 31 -32Q18 -25 8 -32Z',
+        'M-20 18Q-20 14 -16 13',
+    ])
+
+
+def lemon():
+    parts = [circle(0, 0, 31), circle(0, 0, 25)]
+    for k in range(6):
+        a = math.radians(30 + 60 * k)
+        parts.append(line((math.cos(a) * 4, math.sin(a) * 4), (math.cos(a) * 21, math.sin(a) * 21)))
+    return ''.join(parts)
+
+
+def strawberry():
+    seeds = [(-12, -2), (0, -4), (12, -2), (-6, 8), (6, 8), (-12, 14), (12, 14), (0, 18), (-4, 26), (4, 26)]
+    return ''.join([
+        'M0 34C-18 26 -30 6 -26 -8C-24 -18 -12 -20 0 -16C12 -20 24 -18 26 -8C30 6 18 26 0 34Z',
+        line((-17, -15), (-11, -25), (-5, -17), (0, -29), (5, -17), (11, -25), (17, -15)),
+    ] + [circle(x, y, 1.3) for x, y in seeds])
+
+
+def watermelon():
+    outer = arc_pts(0, -8, 38, 0, 180, 18)
+    inner = arc_pts(0, -8, 30, 0, 180, 18)
+    seeds = [(-14, 4), (0, 10), (14, 4), (-7, 18), (7, 18)]
+    return ''.join([smooth_open(outer) + 'Z', smooth_open(inner)] +
+                   [ellipse(x, y, 2, 3.2) for x, y in seeds])
+
+
+def grapes():
+    berries = [(-13, -9), (0, -9), (13, -9), (-6.5, 2.5), (6.5, 2.5), (0, 14)]
+    return ''.join([circle(x, y, 6.6) for x, y in berries] + [
+        'M0 -16Q2 -27 8 -34',
+        'M2 -24Q-10 -35 -21 -28Q-10 -19 2 -24Z',
+    ])
+
+
+def donut():
+    icing = []
+    for i in range(24):
+        t = 2 * math.pi * i / 24
+        r = 24 + 3 * math.sin(6 * t)
+        icing.append((math.cos(t) * r, math.sin(t) * r))
+    rng = random.Random(3)
+    sprinkles = []
+    for i in range(9):
+        a = 2 * math.pi * i / 9 + 0.3
+        r = 17 + rng.uniform(-1.5, 2)
+        cx, cy = math.cos(a) * r, math.sin(a) * r
+        t = rng.uniform(0, math.pi)
+        sprinkles.append(line((cx - 2.5 * math.cos(t), cy - 2.5 * math.sin(t)),
+                              (cx + 2.5 * math.cos(t), cy + 2.5 * math.sin(t))))
+    return ''.join([circle(0, 0, 31), smooth_closed(icing), circle(0, 0, 9)] + sprinkles)
+
+
+def icecream():
+    return ''.join([
+        line((-16, 0), (0, 44), (16, 0)),
+        line((-11, 12), (7, 6)), line((-6, 25), (4, 21)),
+        'M-21 0Q-25 -30 0 -32Q25 -30 21 0Q15 6 10.5 0Q5 6 0 0Q-5 6 -10.5 0Q-15 6 -21 0Z',
+        circle(5, -37, 4.5),
+    ])
+
+
+def cupcake():
+    return ''.join([
+        'M-22 6L-16 40L16 40L22 6Z',
+        line((-11, 6), (-8, 40)), line((0, 6), (0, 40)), line((11, 6), (8, 40)),
+        'M-26 6Q-31 -8 -17 -11Q-15 -26 0 -26Q15 -26 17 -11Q31 -8 26 6Z',
+        circle(0, -31, 4.5),
+    ])
+
+
+def balloon():
+    return ''.join([
+        'M0 22C-22 22 -28 -2 -28 -14C-28 -32 -14 -42 0 -42C14 -42 28 -32 28 -14C28 -2 22 22 0 22Z',
+        'M-4 27L4 27L0 22Z',
+        'M0 27Q-8 36 0 45',
+        'M-16 -24Q-14 -32 -6 -34',
+    ])
+
+
+def umbrella():
+    xs = [38 - 12.6 * i for i in range(7)]
+    scallop = ''.join('Q%s -7 %s 0' % (f((xs[i] + xs[i + 1]) / 2), f(xs[i + 1])) for i in range(6))
+    return ''.join([
+        'M-38 0Q-36 -36 0 -38Q36 -36 38 0' + scallop + 'Z',
+        'M0 -38Q-10 -20 -12.6 0', 'M0 -38Q10 -20 12.6 0',
+        'M0 0L0 32Q0 40 -7 40Q-14 40 -14 33',
+    ])
+
+
+def cloud():
+    return 'M-26 14Q-40 14 -38 0Q-36 -12 -22 -10Q-18 -28 2 -28Q20 -28 24 -12Q38 -14 40 0Q40 14 26 14Z'
+
+
+def sun():
+    parts = [circle(0, 0, 15)]
+    for k in range(8):
+        a = math.radians(45 * k)
+        parts.append(line((math.cos(a) * 22, math.sin(a) * 22), (math.cos(a) * 32, math.sin(a) * 32)))
+    return ''.join(parts)
+
+
+def moon():
+    # Серп: зовнішнє коло r30 з центром 0, внутрішнє r25 зсунуте праворуч-угору.
+    R, r, c2 = 30, 25, (13, -8)
+    d = math.hypot(*c2)
+    a = (R * R - r * r + d * d) / (2 * d)
+    h = math.sqrt(max(R * R - a * a, 0))
+    ux, uy = c2[0] / d, c2[1] / d
+    p1 = (a * ux - h * uy, a * uy + h * ux)
+    p2 = (a * ux + h * uy, a * uy - h * ux)
+
+    def ang(p, c):
+        return math.degrees(math.atan2(p[1] - c[1], p[0] - c[0]))
+
+    a1, a2 = ang(p1, (0, 0)), ang(p2, (0, 0))
+    if a2 < a1:
+        a2 += 360
+    outer = arc_pts(0, 0, R, a1, a2, 20)
+    b1, b2 = ang(p2, c2), ang(p1, c2)
+    if b2 > b1:
+        b2 -= 360
+    inner = arc_pts(c2[0], c2[1], r, b1, b2, 20)
+    return smooth_open(outer + inner[1:]) + 'Z' + sparkle(24, -24, 6)
+
+
+def flower():
     parts = []
-    for k, g in enumerate(cats):
-        x0, y0, x1, y1 = g['box']
-        # Вписати в місце прибраного малюнка; товщина ліній — майже та сама.
-        s = min((x1 - x0) / w, (y1 - y0) / h) * 1.02
-        s = max(0.88, min(1.1, s))
-        angle, flip = CAT_POSES[k % len(CAT_POSES)]
-        cx, cy = g['center']
-        parts.append('<path transform="translate(%s %s) rotate(%s) scale(%s %s)" d="%s"/>'
-                     % (fmt(cx), fmt(cy), angle, '%.3f' % (s * flip),
-                        '%.3f' % s, d))
-    return '<g fill="#000" fill-rule="evenodd">' + ''.join(parts) + '</g>'
+    for k in range(5):
+        a = -90 + 72 * k
+        pt = lambda deg, rr: (math.cos(math.radians(deg)) * rr, math.sin(math.radians(deg)) * rr)
+        b1, b2 = pt(a - 32, 7), pt(a + 32, 7)
+        c1, c2 = pt(a - 26, 30), pt(a + 26, 30)
+        tip = pt(a, 31)
+        parts.append('M%s %sQ%s %s %s %sQ%s %s %s %s' % tuple(map(f, (
+            b1[0], b1[1], c1[0], c1[1], tip[0], tip[1], c2[0], c2[1], b2[0], b2[1]))))
+    return ''.join(parts) + circle(0, 0, 7)
+
+
+def leaf():
+    return ''.join([
+        'M-30 30Q-34 -24 30 -30Q24 26 -30 30Z',
+        line((-30, 30), (22, -22)),
+        line((-12, 12), (-14, -2)), line((-12, 12), (2, 14)),
+        line((4, -4), (2, -16)), line((4, -4), (16, -2)),
+    ])
+
+
+def butterfly():
+    return ''.join([
+        'M0 -4Q-30 -40 -34 -14Q-36 4 0 2', 'M0 -4Q30 -40 34 -14Q36 4 0 2',
+        'M0 2Q-26 4 -24 22Q-18 34 0 10', 'M0 2Q26 4 24 22Q18 34 0 10',
+        line((0, -14), (0, 22)),
+        'M0 -14Q-4 -26 -11 -31', 'M0 -14Q4 -26 11 -31',
+    ])
+
+
+def fish():
+    return ''.join([
+        'M22 0Q0 -22 -22 0Q0 22 22 0Z',
+        'M-22 0L-36 -13L-34 0L-36 13Z',
+        circle(10, -4, 2.4),
+        'M1 -12Q7 0 1 12',
+        circle(32, -12, 3), circle(38, -22, 2),
+    ])
+
+
+def plane():
+    return ''.join([
+        'M-36 0L36 -26L14 28L2 8Z',
+        line((2, 8), (29, -20)),
+        line((2, 8), (-2, 22), (8, 15)),
+    ])
+
+
+def music():
+    return ''.join([
+        ellipse(-18, 24, 9, 7), ellipse(14, 16, 9, 7),
+        line((-9, 24), (-9, -24)), line((23, 16), (23, -32)),
+        line((-9, -24), (23, -32)), line((-9, -16), (23, -24)),
+    ])
+
+
+def gift():
+    return ''.join([
+        rrect(-27, -6, 54, 40, 3), rrect(-31, -16, 62, 11, 3),
+        line((0, -16), (0, 34)),
+        'M0 -16Q-18 -34 -22 -22Q-20 -14 0 -16', 'M0 -16Q18 -34 22 -22Q20 -14 0 -16',
+    ])
+
+
+def bulb():
+    return ''.join([
+        'M-10 18Q-10 8 -18 -2Q-26 -14 -20 -26Q-12 -40 0 -40Q12 -40 20 -26Q26 -14 18 -2Q10 8 10 18Z',
+        line((-10, 24), (10, 24)), line((-8, 30), (8, 30)), line((-4, 36), (4, 36)),
+        line((-6, 14), (-6, 2)), 'M-6 2Q0 -7 6 2', line((6, 2), (6, 14)),
+    ])
+
+
+def rainbow():
+    parts = [smooth_open(arc_pts(0, 14, r, 180, 360, 16)) for r in (36, 28, 20)]
+    parts.append(smooth_closed([(-44, 18), (-38, 10), (-29, 11), (-24, 18), (-30, 23), (-39, 23)]))
+    parts.append(smooth_closed([(44, 18), (38, 10), (29, 11), (24, 18), (30, 23), (39, 23)]))
+    return ''.join(parts)
+
+
+def mushroom():
+    return ''.join([
+        'M-32 4Q-34 -28 0 -30Q34 -28 32 4Z',
+        circle(-14, -12, 4), circle(6, -18, 5), circle(18, -4, 3.5),
+        'M-12 4L-14 32Q-14 38 -8 38L8 38Q14 38 14 32L12 4',
+    ])
+
+
+# Ярус: 'X' — найбільші (кілька на плитку: парасольку, кульку, котів видно
+# здалеку — власник: «не всі однакового розміру»), 'L' — великі, 'M' —
+# середні, 'S' — дрібні (простий силует, щоб не злипся).
+#: (малюнок, вага в мішку, можна дзеркалити, яруси)
+ICONS = [
+    (bucket, 1.2, True, 'XLM'), (spray, 1.2, True, 'LM'), (sponge, 1.0, True, 'MS'),
+    (broom, 1.0, True, 'LM'), (mop, 0.9, True, 'LM'), (squeegee, 0.8, True, 'M'),
+    (glove, 0.9, True, 'M'), (bubbles, 1.0, True, 'MS'), (duster, 0.7, True, 'M'),
+    (vacuum, 0.9, True, 'LM'), (window, 0.8, False, 'LM'), (house, 0.9, True, 'LM'),
+    (key, 0.8, True, 'MS'), (washer, 0.8, False, 'LM'), (basket, 0.7, False, 'LM'),
+    (plant, 1.0, True, 'XLM'), (iron, 0.7, True, 'M'), (soap, 0.8, True, 'MS'),
+    (cat_sitting, 1.4, True, 'XLM'), (cat_face, 1.2, False, 'XLMS'), (paw, 1.0, True, 'MS'),
+    (heart, 1.0, False, 'MS'), (chat, 0.8, True, 'MS'), (calendar, 0.6, False, 'M'),
+    (rating, 1.0, False, 'MS'), (drop, 0.9, False, 'MS'), (detergent, 0.8, True, 'LM'),
+    (mug, 0.9, True, 'M'), (clock, 0.6, False, 'M'), (sparkles, 1.0, True, 'MS'),
+    (zunor, 1.2, False, 'LM'),
+    (pineapple, 1.1, True, 'XLM'), (banana, 1.0, True, 'LM'), (apple, 1.0, True, 'MS'),
+    (cherries, 1.0, True, 'MS'), (lemon, 0.9, False, 'MS'), (strawberry, 1.0, True, 'XLM'),
+    (watermelon, 0.9, True, 'XLM'), (grapes, 0.9, True, 'M'), (donut, 1.0, False, 'XLM'),
+    (icecream, 1.0, True, 'XLM'), (cupcake, 1.0, True, 'XLM'), (balloon, 1.0, True, 'XLM'),
+    (umbrella, 0.9, True, 'XLM'), (cloud, 0.9, True, 'MS'), (sun, 0.8, False, 'MS'),
+    (moon, 0.9, True, 'MS'), (flower, 1.0, False, 'MS'), (leaf, 0.9, True, 'MS'),
+    (butterfly, 1.0, False, 'XLM'), (fish, 0.9, True, 'MS'), (plane, 0.8, True, 'MS'),
+    (music, 0.8, True, 'MS'), (gift, 0.9, False, 'XLM'), (bulb, 0.8, False, 'M'),
+    (rainbow, 0.8, False, 'XLM'), (mushroom, 0.9, True, 'XLM'),
+]
+
+# ─── Закоханий кіт, що лежить на пузі (з наліпки, обведений) ─────────────
+
+#: Власник: «взяти ту картинку, як він лежить, і все — очі, носик, хвіст —
+#: просто по контуру обвести, без кольорів, нічого не дорисовувати від
+#: себе». Джерело — наліпка mascot/cat-love.source.json, кадр 0 (LottieFiles
+#: «Cat feeling love», автор Abdul Latif, Lottie Simple License: комерційно
+#: можна, змінювати можна, похідне — на тих самих умовах). Обведено
+#: машинно: чорнило наліпки (темний контур) → осьові лінії, штрихом LINE, як
+#: усе в узорі; суцільні темні плями (зіниці з відблисками, носик,
+#: веснянки) — заливкою. Кути НЕ мʼякшимо (soften) — як в оригіналі.
+#: Дані згенеровані, руками не правити.
+LYING_CAT_STROKE = (
+    'M2.2 23.1C2.2 23 2 22.9 2 22.8M2.2 23.1C2 23.1 1.7 23.2 1.2 23C0.6 22.8 -0.6 22.2 -1.2 21.8C'
+    '-1.9 21.4 -2.3 21 -2.6 20.6C-3 20.2 -3.1 19.8 -3.2 19.3C-3.2 18.8 -3.2 18.2 -3 17.7C-2.9 17.'
+    '2 -2.6 16.8 -2.2 16.3C-1.8 15.9 -1.3 15.4 -0.7 15C-0.1 14.6 0.9 14.2 1.3 14M2.3 23.1C2.3 23 '
+    '2.4 22.9 2.3 22.5C2.1 22 1.5 20.7 1.4 20.1C1.2 19.5 1.4 19.2 1.4 18.9C1.5 18.6 1.6 18.4 1.8 '
+    '18.3C2 18.1 1.9 18 2.4 17.8C2.8 17.7 3.8 17.5 4.3 17.5C4.8 17.4 5.1 17.5 5.6 17.6C6.1 17.6 6'
+    '.4 17.7 7.1 17.9C7.8 18.2 9 18.7 9.8 19.1C10.6 19.6 11.4 20.2 12 20.8C12.7 21.4 13.3 22.2 13'
+    '.7 22.8C14.1 23.3 14.2 23.7 14.4 24.3C14.6 24.9 14.7 25.5 14.7 26.4C14.7 27.2 14.4 28.7 14.2'
+    ' 29.4C14 30.2 13.8 30.4 13.6 30.9C13.3 31.3 13.1 31.7 12.8 32.1C12.4 32.4 12 32.8 11.6 33.1C'
+    '11.1 33.5 10.4 33.9 10 34.1C9.7 34.4 9.6 34.7 9.6 34.8M2.3 23.1C2.6 23.3 4 24.2 4.5 24.6C4.9'
+    ' 24.9 4.9 25.1 5 25.2M32.6 22.1C33.1 21.9 34.9 21.2 35.4 21M32.5 22.2C32.4 22.3 32.7 22.2 32'
+    ' 22.8C31.4 23.5 29.4 25.2 28.5 25.9C27.5 26.6 26.8 27 26.4 27.2M32.5 22.1C32.4 22.1 32.7 22 '
+    '32.1 22C31.4 22 29.4 22.2 28.5 22.2C27.5 22.3 26.8 22.1 26.5 22.1M-11.1 -1.4C-10.8 -1.9 -10 '
+    '-3.6 -9.6 -4.5C-9.2 -5.5 -8.9 -6.3 -8.7 -7.2C-8.6 -8 -8.5 -8.8 -8.5 -9.7C-8.6 -10.6 -8.7 -11'
+    '.8 -9 -12.8C-9.3 -13.8 -9.9 -15 -10.4 -15.8C-11 -16.6 -11.6 -17.2 -12.3 -17.8C-13 -18.4 -13.'
+    '9 -18.9 -14.7 -19.2C-15.5 -19.6 -16.1 -19.8 -17.1 -20C-18 -20.1 -19.7 -20.1 -20.6 -20C-21.5 '
+    '-20 -22 -19.8 -22.6 -19.6C-23.2 -19.5 -23.7 -19.3 -24.3 -19C-24.8 -18.8 -25.5 -18.4 -26 -18C'
+    '-26.5 -17.7 -26.9 -17.4 -27.4 -16.8C-28 -16.2 -28.8 -15.1 -29.2 -14.4C-29.6 -13.8 -29.6 -13.'
+    '6 -29.7 -13C-29.9 -12.4 -30.1 -11.9 -30.1 -11.1C-30.1 -10.2 -29.8 -8.8 -29.6 -8.1C-29.5 -7.4'
+    ' -29.2 -7.2 -29 -6.9C-28.8 -6.5 -28.6 -6.3 -28.2 -5.9C-27.9 -5.6 -27.5 -5.2 -27 -4.9C-26.6 -'
+    '4.6 -25.7 -4.2 -25.5 -4M-11.1 -1.3C-10.4 -1.3 -8.2 -1.1 -7.2 -1C-6.1 -0.9 -5.7 -0.8 -4.8 -0.'
+    '6C-4 -0.4 -3.1 -0.2 -2 0.1C-0.9 0.4 1 1 1.6 1.2M-11.1 -1.3C-12.1 -1.3 -15.3 -1.2 -16.8 -1.1C'
+    '-18.4 -0.9 -18.8 -0.9 -20.3 -0.5C-21.8 -0.2 -24.2 0.5 -25.9 1C-27.6 1.6 -29 2.3 -30.4 3C-31.'
+    '8 3.8 -33.3 4.7 -34.5 5.6C-35.6 6.5 -36.7 7.5 -37.5 8.4C-38.4 9.2 -38.8 9.7 -39.5 10.7C-40.2'
+    ' 11.7 -41.5 13.9 -42 14.6C-42.5 15.3 -42.3 14.9 -42.4 15M-42.5 15C-42.5 15.2 -42.5 15.5 -42.'
+    '7 16.3C-42.9 17.1 -43.5 19 -43.7 19.8C-43.9 20.5 -43.8 20.7 -43.8 20.9M-42.5 15C-42.6 14.9 -'
+    '42.8 14.7 -43 14.4C-43.1 14.1 -43.2 13.8 -43.2 13.2C-43.2 12.5 -43.2 11.3 -43 10.5C-42.9 9.8'
+    ' -42.7 9.4 -42.4 8.7C-42 8.1 -41.4 7.2 -40.8 6.5C-40.2 5.8 -39.7 5.4 -38.8 4.7C-37.9 4 -37 3'
+    '.2 -35.4 2.3C-33.9 1.4 -30.9 0 -29.4 -0.8C-28 -1.6 -27.4 -2 -26.8 -2.4C-26.2 -2.8 -26 -3 -25'
+    '.8 -3.3C-25.6 -3.5 -25.5 -3.8 -25.5 -3.9M26.4 27.3C26.2 27.4 25.9 27.7 25.5 27.9C25.1 28.1 2'
+    '4.7 28.4 24 28.5C23.4 28.6 22.6 28.7 21.8 28.6C21 28.4 20 27.9 19.5 27.6C18.9 27.4 18.8 27.2'
+    ' 18.6 26.9C18.4 26.7 18.3 26.3 18.2 26.2M26.4 27.2C26.2 27.1 25.8 26.6 25.5 26.4C25.1 26.2 2'
+    '4.7 25.9 24.3 25.8C23.8 25.7 23.2 25.6 22.8 25.6C22.5 25.6 22.2 25.9 22.1 25.9M18.7 -22.7C19'
+    ' -22.4 18.8 -22.6 19.1 -22.8C19.4 -22.9 20 -23.5 20.4 -23.7C20.7 -23.9 21 -24 21.3 -24.1C21.'
+    '7 -24.2 22 -24.3 22.4 -24.2C22.7 -24.2 23.1 -24.2 23.4 -24C23.8 -23.9 24.1 -23.7 24.3 -23.4C'
+    '24.5 -23.1 24.7 -22.8 24.9 -22.5C25 -22.1 25.1 -21.8 25.2 -21.4C25.2 -21 25.2 -20.5 25.1 -19'
+    '.9C24.9 -19.3 24.6 -18.6 24.1 -18C23.6 -17.3 22.8 -16.6 21.9 -16C21.1 -15.4 19.7 -14.7 18.9 '
+    '-14.3C18.1 -13.9 17.5 -13.8 17.1 -13.6C16.6 -13.5 16.4 -13.5 16.1 -13.5C15.8 -13.6 15.8 -13.'
+    '6 15.5 -14C15.2 -14.4 14.8 -15 14.4 -15.7C14 -16.5 13.4 -17.6 13.1 -18.6C12.8 -19.5 12.6 -20'
+    '.5 12.5 -21.3C12.4 -22 12.6 -22.6 12.7 -23C12.8 -23.4 12.9 -23.5 13.1 -23.8C13.3 -24.1 13.6 '
+    '-24.4 13.8 -24.6C14.1 -24.8 14.3 -24.9 14.6 -25C14.9 -25.1 15.2 -25.1 15.5 -25.1C15.8 -25.1 '
+    '16.1 -25.1 16.3 -25C16.6 -24.9 16.7 -24.9 17.1 -24.6C17.5 -24.2 18.4 -23 18.7 -22.7ZM18.6 -2'
+    '2.5C18.4 -22.1 17.6 -20.7 17.4 -20.4M-29.7 34.7C-29.6 34.6 -29.9 34.4 -29.1 34C-28.3 33.7 -2'
+    '6.2 33.2 -24.9 32.7C-23.7 32.2 -22.1 31.4 -21.5 31.1M-29.7 34.8C-29.7 34.8 -29.5 35 -29.3 35'
+    'C-29.1 35.1 -32.8 35.1 -28.7 35.1C-24.5 35.1 -8.5 35.1 -4.3 35.1C-0.1 35 -3.6 34.9 -3.5 34.8'
+    'M-29.8 34.8C-31.1 34.8 -35.4 35.1 -37.2 35.1C-39.1 35 -40 34.8 -41 34.6C-42 34.5 -42.3 34.4 '
+    '-43.1 34.2C-43.8 33.9 -44.8 33.6 -45.4 33.3C-46.1 33 -46.6 32.7 -47.1 32.4C-47.6 32.1 -48 31'
+    '.7 -48.4 31.3C-48.8 30.9 -49.2 30.5 -49.5 30C-49.7 29.6 -49.9 29 -50 28.5C-50.2 28.1 -50.2 2'
+    '7.6 -50.1 27.1C-50.1 26.7 -50 26.3 -49.8 25.8C-49.6 25.4 -49.3 25 -49 24.6C-48.6 24.2 -48.5 '
+    '24 -47.7 23.4C-46.8 22.7 -44.4 21.3 -43.8 20.9M36.5 4.4C35.8 4 33.6 2.8 32.4 2.3C31.3 1.7 30'
+    '.7 1.5 29.7 1.2C28.8 0.9 27.7 0.6 26.6 0.4C25.5 0.1 24.2 0 23 -0.1C21.8 -0.2 20.8 -0.2 19.5 '
+    '-0.1C18.3 0 16.7 0.1 15.4 0.4C14.1 0.6 12.7 1 11.6 1.4C10.5 1.8 9.3 2.5 8.9 2.7M36.6 4.5C36.'
+    '6 4.6 36.5 4.6 37 5C37.4 5.4 38.3 6 39 6.7C39.8 7.4 41.1 8.7 41.5 9.1M36.6 4.4C36.7 4.3 36.7'
+    ' 4.1 37.2 3.9C37.8 3.7 39.1 3.4 39.8 3.2C40.5 3.1 41 3 41.4 3.1C41.8 3.1 41.9 3.2 42.2 3.4C4'
+    '2.4 3.6 42.6 4 42.7 4.3C42.8 4.7 42.9 4.9 42.8 5.5C42.7 6.1 42.4 7.5 42.2 8.1C42 8.7 41.7 8.'
+    '9 41.6 9.1M26.5 22C26.5 21.8 26.7 21.3 26.7 20.5C26.7 19.7 26.6 17.6 26.6 17M26.4 22.1C26.1 '
+    '22.1 25.2 22 24.3 21.9C23.5 21.8 22.9 21.7 21.6 21.3C20.2 20.9 17.3 19.8 16.3 19.5C15.3 19.1'
+    ' 15.8 19.4 15.7 19.4C15.5 19.4 15.5 19.5 15.5 19.7C15.5 19.8 15.4 19.7 15.6 20.3C15.7 20.9 1'
+    '6 22.5 16.3 23.4C16.6 24.2 17 24.9 17.3 25.4C17.6 25.9 18 26.1 18.2 26.2M5.1 25.2C5.4 25.3 6'
+    '.6 25.5 6.9 25.6M5 25.2C4.9 25.3 4.7 25.6 4.5 25.8C4.2 25.9 3.7 26.2 3.3 26.3C2.9 26.4 2.4 2'
+    '6.5 2.1 26.5C1.7 26.5 1.2 26.4 1.1 26.4M-3.4 34.8C-2.8 34.9 -1.6 35 0 35.1C1.7 35.1 5.1 35.1'
+    ' 6.6 35.1C8.2 35 9 34.9 9.5 34.8M-3.5 34.8C-3.6 34.7 -3.5 34.5 -4 34.1C-4.6 33.7 -6.1 32.9 -'
+    '6.8 32.4C-7.4 31.9 -7.6 31.6 -7.9 31.3C-8.1 31 -8.4 30.6 -8.5 30.4M-43.8 20.9C-43 20.7 -39.9'
+    ' 19.7 -39.2 19.5M8.9 2.7C8.9 2.8 9.1 3.1 9.2 3.3C9.4 3.5 9.7 3.7 9.8 3.8M8.8 2.7C8 2.4 5.1 1'
+    '.3 4.1 1.1C3.1 0.8 3.4 1 3 1C2.6 1.1 1.9 1.2 1.7 1.2M1.6 1.3C1.5 1.6 1.3 2.3 1.2 2.7C1.1 3.2'
+    ' 1 3.3 1.2 4.2C1.3 5.1 2 7.5 2.1 8.1M47.7 19.1C47.1 19.1 45 19.1 44.1 19.2C43.1 19.4 42.5 19'
+    '.6 42 19.9C41.4 20.1 41 20.4 40.6 20.6C40.2 20.9 39.9 21.2 39.7 21.6C39.5 21.9 39.4 22.3 39.'
+    '3 22.6C39.2 22.9 39.2 23 39.3 23.4C39.4 23.9 39.7 24.9 39.8 25.2M47.7 19.1C47.8 19.2 48.5 19'
+    '.5 48.8 19.7C49 20 49 20.2 49 20.4C49 20.7 49 20.8 48.7 21.3C48.3 21.7 47.3 22.7 46.9 23.2C4'
+    '6.5 23.7 46.4 24 46.4 24.4C46.3 24.8 46.3 25.1 46.4 25.5C46.5 26 46.8 26.8 47 27.3C47.1 27.9'
+    ' 47.2 28 47.2 28.6C47.2 29.2 47.1 30.2 47 30.8C46.9 31.4 46.7 31.6 46.5 32C46.3 32.3 46.1 32'
+    '.6 45.8 32.9C45.5 33.2 45.1 33.5 44.7 33.7C44.4 33.9 43.9 34.1 43.5 34.3C43 34.5 42.7 34.6 4'
+    '2 34.7C41.4 34.9 44.6 35 39.3 35.1C34.1 35.1 15.4 35.1 10.4 35.1C5.4 35 9.7 34.9 9.6 34.8M43'
+    '.1 -17.9C43.7 -18 44.5 -18.9 45 -19.1C45.5 -19.3 45.7 -19.2 46.1 -19.2C46.4 -19.2 46.8 -19.1'
+    ' 47.1 -19C47.5 -18.8 47.9 -18.6 48.3 -18.3C48.6 -18.1 48.8 -17.8 49.1 -17.5C49.3 -17.2 49.5 '
+    '-16.8 49.7 -16.5C49.8 -16.1 50 -15.9 50 -15.3C50.1 -14.6 50.2 -13.7 50 -12.8C49.9 -11.9 49.5'
+    ' -10.9 49.1 -10C48.7 -9.1 48 -8.1 47.5 -7.5C47 -6.8 46.4 -6.2 46.1 -5.9C45.7 -5.6 46.1 -5.4 '
+    '45.4 -5.5C44.7 -5.5 42.7 -6.1 41.9 -6.3C41 -6.6 40.8 -6.7 40.3 -7C39.8 -7.2 39.4 -7.5 39 -7.'
+    '8C38.6 -8.1 38.2 -8.3 37.9 -8.7C37.6 -9 37.3 -9.3 37 -9.7C36.8 -10.1 36.4 -10.6 36.3 -11.1C3'
+    '6.1 -11.5 36 -11.8 35.9 -12.3C35.8 -12.7 35.7 -13.2 35.7 -13.7C35.7 -14.2 35.8 -14.9 36 -15.'
+    '3C36.1 -15.8 36.3 -16.2 36.6 -16.6C36.8 -17 37.2 -17.4 37.6 -17.7C37.9 -18 38.4 -18.2 38.8 -'
+    '18.4C39.3 -18.6 39.8 -18.7 40.2 -18.7C40.7 -18.7 41 -18.6 41.4 -18.5C41.9 -18.4 42.5 -17.8 4'
+    '3.1 -17.9ZM43.1 -17.7C43.2 -17.4 43.8 -16.4 43.9 -15.9C44.1 -15.3 44 -14.5 44 -14.3M39.8 25.'
+    '2C40.1 25.5 41.2 26.6 41.5 26.9M39.8 25.2C39.7 25.3 39.5 25.3 39.2 25.7C38.9 26 38.3 26.9 38'
+    ' 27.3C37.7 27.8 37.6 28 37.5 28.3C37.3 28.7 37.2 29.2 37.2 29.4M34.5 -34.1C34 -34.2 33.3 -34'
+    '.8 32.7 -35C32.2 -35.1 31.5 -35 31.2 -34.9C30.8 -34.9 30.7 -34.7 30.5 -34.6C30.3 -34.4 30 -3'
+    '4.2 29.8 -33.9C29.6 -33.5 29.3 -33 29.3 -32.5C29.2 -32 29.2 -31.4 29.4 -30.9C29.5 -30.3 29.8'
+    ' -29.9 30.1 -29.4C30.5 -28.9 31 -28.4 31.5 -27.9C32.1 -27.4 32.9 -26.7 33.4 -26.6C33.9 -26.5'
+    ' 34.1 -26.8 34.6 -27.1C35.1 -27.5 36 -28.2 36.5 -28.7C37 -29.2 37.3 -29.6 37.5 -30C37.8 -30.'
+    '5 38 -31 38 -31.5C38.1 -31.9 38.1 -32.5 37.9 -33C37.8 -33.4 37.4 -33.9 37.1 -34.2C36.7 -34.4'
+    ' 36.2 -34.6 35.8 -34.6C35.4 -34.6 35 -34.1 34.5 -34.1ZM34.5 -34C34.6 -33.7 35.1 -32.3 35.2 -'
+    '31.9M10.8 11.8C10.4 11.9 8.8 12.5 8.4 12.6M2.1 8.1C2 8.2 1.8 8.3 1.5 8.6C1.3 8.9 0.9 9.4 0.5'
+    ' 10.1C0.1 10.7 -0.6 12.1 -0.8 12.5M2.1 8.1C2.2 8.2 2.4 8.3 2.7 8.7C2.9 9.2 3.5 10.4 3.6 10.7'
+    'M22.1 25.9C21.7 25.9 20.5 25.7 20 25.7C19.4 25.7 19.1 25.8 18.8 25.9C18.5 26 18.3 26.2 18.2 '
+    '26.2M22.1 25.9C22.3 26.2 23.3 27.3 23.5 27.6M22.4 15.1C22.2 15.1 21.4 14.9 21.2 14.9M4.6 9.3'
+    'C4.3 8.6 3.2 5.9 2.9 5C2.5 4 2.6 3.9 2.6 3.6C2.6 3.2 2.7 3 2.8 2.8C3 2.7 3.2 2.6 3.5 2.5C3.8'
+    ' 2.5 3.8 2.4 4.6 2.7C5.4 3.1 7.8 4.3 8.4 4.6M40.4 13.2C40.3 13.1 39.9 13 39.6 13C39.4 13 39.'
+    '2 13.1 39.1 13.1M30.4 15C30.2 15 29.4 15.1 29.3 15.1M-25.4 -4C-25.3 -4.1 -25 -4.1 -24.8 -4.3'
+    'C-24.6 -4.5 -24.4 -4.6 -24 -5.1C-23.7 -5.5 -23.2 -6.2 -22.9 -6.8C-22.6 -7.3 -22.4 -7.8 -22.1'
+    ' -8.4C-21.9 -9.1 -21.7 -10.3 -21.6 -10.7M47.7 19.1C47.7 18.8 47.7 18 47.6 17.5C47.6 17.1 47.'
+    '4 16.8 47.2 16.4C46.9 16 46.6 15.6 46.1 15.2C45.6 14.8 44.5 14.4 44.1 13.9C43.7 13.5 44.1 13'
+    '.5 43.7 12.7C43.3 11.9 41.9 9.8 41.6 9.2'
+)
+LYING_CAT_FILL = (
+    'M16.8 6.3C17.2 6.3 17.6 6.3 18 6.3C18.3 6.3 18.6 6.4 18.9 6.5C19.3 6.7 19.8 7 20.1 7.3C20.5 '
+    '7.6 20.6 7.8 20.8 8.2C21 8.6 21.3 9.1 21.4 9.6C21.6 10.1 21.7 10.5 21.7 11.2C21.8 11.9 21.8 '
+    '13.2 21.8 13.8C21.8 14.3 21.8 14.3 21.7 14.4C21.7 14.6 21.6 14.6 21.5 14.7C21.4 14.7 21.5 15'
+    ' 21 14.8C20.4 14.5 18.9 13.6 18.2 13.2C17.4 12.8 17.2 12.7 16.5 12.5C15.7 12.3 14.7 12.1 13.'
+    '9 12C13.1 11.9 12.1 12.1 11.7 12.1C11.2 12 11.3 11.9 11.2 11.7C11.1 11.6 11 11.4 11.1 11.2C1'
+    '1.1 11.1 11 11.2 11.3 10.8C11.5 10.5 12.3 9.5 12.7 9C13.1 8.5 13.3 8.3 13.7 7.9C14.2 7.5 14.'
+    '9 7 15.4 6.8C15.9 6.5 16.4 6.4 16.8 6.3ZM32.4 6.7C32.6 6.7 33.1 6.7 33.3 6.7C33.6 6.7 33.7 6'
+    '.8 33.9 6.8C34.2 6.9 34.4 7 34.8 7.2C35.1 7.4 35.4 7.6 35.9 8C36.4 8.5 37.1 9.2 37.6 9.8C38.'
+    '1 10.4 38.6 11.2 38.8 11.6C39.1 12 39.2 12.1 39.2 12.3C39.3 12.6 39.2 12.7 39.1 12.9C39 13 3'
+    '9.2 13.1 38.7 13.1C38.3 13.1 36.8 13 36.3 13C35.7 13 35.7 13 35.2 13.1C34.7 13.2 34 13.4 33.'
+    '3 13.7C32.5 14 31 14.8 30.5 15C29.9 15.2 30 14.8 29.9 14.8C29.8 14.7 29.8 14.7 29.7 14.6C29.'
+    '7 14.4 29.6 14.4 29.6 13.8C29.6 13.3 29.6 12.1 29.6 11.4C29.7 10.6 29.9 9.8 30 9.3C30.1 8.8 '
+    '30.2 8.6 30.4 8.4C30.6 8.1 30.7 7.8 31 7.5C31.2 7.3 31.7 7 31.9 6.8C32.1 6.7 32.2 6.7 32.4 6'
+    '.7ZM16.2 7.3C15.8 7.5 15 7.9 14.4 8.3C13.9 8.8 13.1 9.6 12.8 10.1C12.4 10.6 11.8 11 12.1 11.'
+    '2C12.3 11.4 13.4 11.2 14.1 11.3C14.9 11.3 15.8 11.5 16.5 11.7C17.1 11.9 17.5 12.1 18.3 12.4C'
+    '19 12.7 20.5 13.7 21 13.8C21.4 13.8 21.1 13.2 21.1 12.7C21.1 12.2 21 11.4 20.9 10.9C20.8 10.'
+    '4 20.7 9.9 20.6 9.6C20.5 9.2 20.3 8.9 20.2 8.7C20.1 8.6 20.1 8.5 20 8.7C20 8.8 19.9 9.3 19.8'
+    ' 9.6C19.6 9.8 19.5 10.1 19.2 10.3C19 10.4 18.7 10.6 18.4 10.6C18.1 10.7 17.8 10.7 17.4 10.6C'
+    '17.1 10.5 16.7 10.3 16.5 10.1C16.3 9.9 16 9.4 16 9.3C16.1 9.2 16.5 9.5 16.7 9.5C16.9 9.5 16.'
+    '9 9.5 17.1 9.4C17.2 9.3 17.5 9 17.5 8.8C17.6 8.6 17.5 8.4 17.5 8.2C17.4 8.1 17.3 8 17.2 7.9C'
+    '17.1 7.8 17 7.7 16.8 7.7C16.6 7.7 16.1 8.1 16.1 8C16 7.9 16.4 7.4 16.4 7.3C16.4 7.2 16.5 7.1'
+    ' 16.2 7.3ZM34.5 8.3C34.3 8.3 34.2 8.4 34.1 8.6C34 8.7 33.9 8.8 33.9 9C33.9 9.1 34 9.5 34.1 9'
+    '.6C34.2 9.8 34.3 9.9 34.5 10C34.6 10 34.8 10 35 10C35.1 9.9 35.3 9.7 35.4 9.7C35.4 9.7 35.5 '
+    '9.8 35.4 9.9C35.3 10.1 35 10.6 34.7 10.8C34.4 11 34.1 11.1 33.8 11.2C33.5 11.2 33.4 11.2 33.'
+    '1 11.2C32.8 11.1 32.4 10.9 32.2 10.7C32 10.6 31.9 10.5 31.8 10.3C31.7 10.1 31.6 9.8 31.5 9.6'
+    'C31.5 9.4 31.4 9.3 31.4 9.1C31.4 8.9 31.6 8.5 31.5 8.4C31.5 8.3 31.3 8.5 31.1 8.7C31 9 30.8 '
+    '9.3 30.7 9.7C30.6 10.2 30.4 10.7 30.4 11.4C30.3 12.2 30.1 13.7 30.5 14C30.9 14.3 32 13.3 32.'
+    '7 13.1C33.3 12.8 33.8 12.7 34.3 12.5C34.9 12.4 35.3 12.3 36 12.2C36.6 12.2 38.2 12.7 38.3 12'
+    '.2C38.3 11.7 36.7 10 36.2 9.4C35.7 8.7 35.4 8.5 35.1 8.3C34.8 8.2 34.6 8.2 34.5 8.3ZM24.6 13'
+    '.2C24.8 13.1 25 13.1 25.2 13.2C25.5 13.3 25.9 13.9 26.2 13.9C26.5 14 26.9 13.5 27.2 13.4C27.'
+    '4 13.4 27.6 13.5 27.7 13.6C27.8 13.7 27.9 13.8 28 13.9C28 14.1 28.1 14.3 28.1 14.5C28.1 14.7'
+    ' 28.2 14.8 28 15.2C27.7 15.6 27.1 16.5 26.8 16.8C26.5 17.1 26.6 17 26.4 16.9C26.2 16.9 25.9 '
+    '16.7 25.6 16.5C25.4 16.3 25.1 16.1 24.8 15.9C24.5 15.6 24.1 15.1 23.9 14.8C23.7 14.5 23.6 14'
+    '.1 23.6 13.9C23.7 13.7 23.8 13.6 23.9 13.5C24.1 13.3 24.4 13.2 24.6 13.2ZM24.6 13.8C24.6 13.'
+    '9 24.5 13.9 24.5 14C24.5 14.1 24.6 14.2 24.7 14.3C24.8 14.4 25.1 14.6 25.3 14.7C25.5 14.7 25'
+    '.7 14.8 25.7 14.7C25.7 14.6 25.5 14.3 25.4 14.1C25.3 13.9 25.1 13.9 24.9 13.8C24.8 13.8 24.7'
+    ' 13.8 24.6 13.8ZM30.7 16C30.9 15.9 31.2 16 31.4 16.1C31.6 16.2 31.9 16.4 32 16.7C32.1 16.9 3'
+    '2.1 17.3 31.9 17.6C31.8 17.8 31.5 18.1 31.2 18.1C31 18.2 30.7 18.2 30.5 18.1C30.3 17.9 30.1 '
+    '17.6 29.9 17.4C29.8 17.3 29.8 17.2 29.9 17.1C29.9 16.9 29.9 16.7 30 16.5C30.2 16.4 30.5 16.1'
+    ' 30.7 16ZM33.5 16.9C33.7 16.9 33.9 16.9 34 17C34.1 17.1 34.2 17.2 34.3 17.4C34.3 17.5 34.3 1'
+    '7.8 34.2 17.9C34.1 18 33.9 18.1 33.7 18.1C33.6 18.2 33.4 18.1 33.3 18C33.1 17.9 33 17.7 33 1'
+    '7.5C33 17.4 33.1 17.2 33.2 17.1C33.3 17 33.4 16.9 33.5 16.9ZM32.4 18.6C32.5 18.6 32.7 18.7 3'
+    '2.8 18.7C32.9 18.8 33 18.9 33 19C33 19.1 33 19.4 32.9 19.5C32.8 19.6 32.7 19.7 32.5 19.6C32.'
+    '4 19.6 32.1 19.4 32 19.2C32 19.1 32 19 32 18.9C32.1 18.8 32.3 18.7 32.4 18.6Z'
+)
+#: Обрис кота колами (x, y, r) у полі малюнка: сусіди не залазять у пузо й
+#: між сердечками, а довкола лежачого кота не лишається порожнього кола.
+LYING_CAT_FOOT = [
+    (-18.7, 15.6, 23.0),
+    (20.5, 17.5, 21.0),
+    (-18.4, -10.0, 12.7),
+    (-39.3, 27.0, 10.6),
+    (1.6, 27.6, 10.5),
+    (39.3, 27.7, 10.2),
+    (43.5, -12.0, 8.5),
+    (41.9, 18.5, 7.8),
+    (2.7, 5.7, 7.2),
+    (17.8, -18.6, 7.0),
+    (33.6, -30.8, 5.9),
+    (39.1, 6.8, 5.8),
+    (23.0, -21.6, 4.5),
+    (41.1, 11.5, 4.1),
+    (30.5, -20.0, 9.0),     # щілина між сердечками
+]
+#: Де кіт лежить на плитці: (центр, нахил, масштаб, дзеркально). Двічі на
+#: плитку (~ раз на екран телефона), на своїх місцях; решта узору — довкола.
+LYING_CAT_SPOTS = [
+    ((470, 820), -5, 3.5, False),
+    ((1000, 2250), 6, 3.5, True),
+]
+
+# ─── Розкладка ───────────────────────────────────────────────────────────
+
+
+def wrap_dist(a, b):
+    dx = abs(a[0] - b[0]); dx = min(dx, W - dx)
+    dy = abs(a[1] - b[1]); dy = min(dy, H - dy)
+    return math.hypot(dx, dy)
+
+
+def reach_of(d):
+    """Радіус малюнка від центру: усі точки шляху (дуга «a» — коло цілком)."""
+    import re
+    toks = re.findall(r'[MLQCZa]|-?\d+(?:\.\d+)?', d)
+    best, i, cmd, cur = 0.0, 0, None, (0.0, 0.0)
+    while i < len(toks):
+        t = toks[i]
+        if t in 'MLQCZa':
+            cmd = t
+            i += 1
+            continue
+        if cmd == 'a':
+            rx, ry = float(toks[i]), float(toks[i + 1])
+            dx, dy = float(toks[i + 5]), float(toks[i + 6])
+            cx, cy = cur[0] + dx / 2, cur[1] + dy / 2
+            best = max(best, math.hypot(abs(cx) + rx, abs(cy) + ry))
+            cur = (cur[0] + dx, cur[1] + dy)
+            i += 7
+            continue
+        x, y = float(toks[i]), float(toks[i + 1])
+        cur = (x, y)
+        best = max(best, math.hypot(x, y))
+        i += 2
+    return best
+
+
+#: Яруси: масштаб, скільки разів кинути «дротик», проміжок до сусідів.
+#: Спершу великі, у проміжки між ними — середні, далі дрібні, наприкінці
+#: дрібнота (іскорки, кружечки) — щільно, як у месенджерах.
+TIERS = [
+    ('X', (2.9, 3.4), 70, 24),
+    ('L', (2.0, 2.4), 170, 18),
+    ('M', (1.35, 1.65), 1800, 14),
+    ('S', (0.9, 1.1), 2400, 12),
+]
+FILL_TRIES = 650
+#: Наскільки контури можуть «зайти» один за одного (силуети не кола).
+OVERLAP = 0.86
+
+
+#: Радіус, яким заокруглюються зломи контуру (у полі малюнка ±50).
+SOFT_R = 6.5
+#: Злом — коли напрям лінії міняється більш ніж на стільки градусів.
+SOFT_ANGLE = 22
+
+
+def soften(d, r=None):
+    """Мʼякі кути (власник: «не має бути гострих кутів, як дах у будинку —
+    усе мʼяке, ніжне»): кожен злом контуру — стик відрізків чи кривих під
+    кутом (дах, вушка котів, промені іскорок, кінчики листя й пелюсток,
+    зубці полуниці) — замінюємо маленькою дугою: обидва сусідні шматки
+    вкорочуємо на r і зʼєднуємо квадратичною кривою з вершиною в куті.
+    Підконтури з дугами «a» (кола) лишаємо як є — кутів у них немає."""
+    import re
+    toks = re.findall(r'[MLQCZa]|-?\d+(?:\.\d+)?', d)
+    # Розбір на підконтури: [(start, [seg...], closed)], seg = ('L'|'Q'|'C', [точки без першої])
+    subs, raw = [], []
+    i, cmd, cur, start = 0, None, None, None
+    segs, closed, has_arc = None, False, False
+    need = {'M': 2, 'L': 2, 'Q': 4, 'C': 6, 'a': 7, 'Z': 0}
+
+    def flush():
+        if segs is not None:
+            subs.append((start, segs, closed, has_arc, raw_text[0]))
+
+    raw_text = ['']
+    while i < len(toks):
+        t = toks[i]
+        if t in need:
+            cmd = t
+            i += 1
+            if cmd == 'Z':
+                closed = True
+                raw_text[0] += 'Z'
+                continue
+            if cmd == 'M':
+                flush()
+                segs, closed, has_arc = [], False, False
+                raw_text = ['']
+        n = need[cmd]
+        nums = [float(x) for x in toks[i:i + n]]
+        i += n
+        if cmd == 'M':
+            cur = start = (nums[0], nums[1])
+            raw_text[0] += 'M%s %s' % (f(nums[0]), f(nums[1]))
+            cmd = 'L'
+            continue
+        if cmd == 'a':
+            has_arc = True
+            raw_text[0] += 'a' + ' '.join(f(x) for x in nums)
+            cur = (cur[0] + nums[5], cur[1] + nums[6])
+            continue
+        pts = [(nums[k], nums[k + 1]) for k in range(0, n, 2)]
+        raw_text[0] += cmd + ' '.join('%s %s' % (f(x), f(y)) for x, y in pts)
+        segs.append([cmd, cur] + pts)
+        cur = pts[-1]
+    flush()
+
+    def point(seg, t):
+        kind, p0, *ps = seg
+        if kind == 'L':
+            p1 = ps[0]
+            return (p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t)
+        if kind == 'Q':
+            c, p1 = ps
+            u = 1 - t
+            return (u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0],
+                    u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1])
+        c1, c2, p1 = ps
+        u = 1 - t
+        return (u ** 3 * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t ** 3 * p1[0],
+                u ** 3 * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t ** 3 * p1[1])
+
+    def length(seg):
+        pts = [point(seg, k / 10) for k in range(11)]
+        return sum(math.dist(pts[k], pts[k + 1]) for k in range(10))
+
+    def lerp(a, b, t):
+        return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+
+    def split(seg, t):
+        """Шматок [0, t] і [t, 1]."""
+        kind, p0, *ps = seg
+        if kind == 'L':
+            m = lerp(p0, ps[0], t)
+            return ['L', p0, m], ['L', m, ps[0]]
+        if kind == 'Q':
+            c, p1 = ps
+            a, b = lerp(p0, c, t), lerp(c, p1, t)
+            m = lerp(a, b, t)
+            return ['Q', p0, a, m], ['Q', m, b, p1]
+        c1, c2, p1 = ps
+        a, b, c = lerp(p0, c1, t), lerp(c1, c2, t), lerp(c2, p1, t)
+        ab, bc = lerp(a, b, t), lerp(b, c, t)
+        m = lerp(ab, bc, t)
+        return ['C', p0, a, ab, m], ['C', m, bc, c, p1]
+
+    def t_at(seg, dist, from_end):
+        """Параметр, на якому точка відійшла від кінця (чи початку) на dist."""
+        lo, hi = 0.0, 1.0
+        anchor = point(seg, 1.0 if from_end else 0.0)
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            tt = 1 - mid if from_end else mid
+            if math.dist(point(seg, tt), anchor) < dist:
+                lo = mid
+            else:
+                hi = mid
+        return 1 - lo if from_end else lo
+
+    def tangent(seg, at_end):
+        a = point(seg, 0.999 if at_end else 0.0)
+        b = point(seg, 1.0 if at_end else 0.001)
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = math.hypot(dx, dy) or 1
+        return dx / n, dy / n
+
+    out = ''
+    for start, segs, closed, has_arc, text in subs:
+        if has_arc or not segs:
+            out += text
+            continue
+        segs = [s for s in segs if length(s) > 0.05]
+        if closed and math.dist(segs[-1][-1], start) > 0.05:
+            segs.append(['L', segs[-1][-1], start])
+        if not segs:
+            out += text
+            continue
+        n = len(segs)
+        joints = range(n) if closed else range(n - 1)
+        corner = {}
+        for j in joints:
+            a, b = segs[j], segs[(j + 1) % n]
+            ta, tb = tangent(a, True), tangent(b, False)
+            ang = math.degrees(math.acos(max(-1.0, min(1.0, ta[0] * tb[0] + ta[1] * tb[1]))))
+            if ang > SOFT_ANGLE:
+                # Гострий злом (вістря) — більшим радіусом: та сама дуга
+                # в гострому куті виходить крихітною.
+                base = SOFT_R if r is None else r
+                rr = base * (1.6 if ang > 120 else 1.0)
+                corner[j] = min(rr, length(a) * 0.42, length(b) * 0.42)
+        if not corner:
+            out += text
+            continue
+        # Вкоротити шматки біля кутів.
+        trimmed = []
+        for j, s in enumerate(segs):
+            cut_start = corner.get((j - 1) % n) if (closed or j > 0) else None
+            cut_end = corner.get(j)
+            if cut_end:
+                s = split(s, t_at(s, cut_end, True))[0]
+            if cut_start:
+                s = split(s, t_at(s, cut_start, False))[1]
+            trimmed.append(s)
+        path = 'M%s %s' % (f(trimmed[0][1][0]), f(trimmed[0][1][1]))
+        for j, s in enumerate(trimmed):
+            kind, _p0, *ps = s
+            path += kind + ' '.join('%s %s' % (f(x), f(y)) for x, y in ps)
+            if j in corner and (closed or j < n - 1):
+                c = segs[j][-1]
+                nxt = trimmed[(j + 1) % n][1]
+                path += 'Q%s %s %s %s' % (f(c[0]), f(c[1]), f(nxt[0]), f(nxt[1]))
+        out += path + ('Z' if closed else '')
+    return out
 
 
 def build():
-    svg = io.open(SRC, encoding='utf-8').read().strip()
-    path_re = re.compile(r'<path d="([^"]+)"\s*/>')
-    ds = path_re.findall(svg)
-    paths = [subpaths(d) for d in ds]
-    items, groups = doodles(paths)
-    chosen = pick(groups)
-    cats = pick_cats(groups, chosen)
-    return svg, path_re, paths, items, groups, chosen, cats
+    rng = random.Random(SEED)
+    reach = {ic: reach_of(ic()) for ic, *_r in ICONS}
+    # Мʼякі кути — для всіх, крім знака Zunor (фірмовий, як є).
+    drawn = {ic: (ic() if ic is zunor else soften(ic())) for ic, *_r in ICONS}
+    placed = []      # (p, d, tilt, scale, mirror, radius, icon)
+    cell = 60
+    gw, gh = W // cell, H // cell
+    grid = {}
+
+    def fits(p, rad, gap):
+        gx, gy = int(p[0] // cell), int(p[1] // cell)
+        k = int((rad + 180) // cell) + 1
+        for dx in range(-k, k + 1):
+            for dy in range(-k, k + 1):
+                for (q, qr) in grid.get(((gx + dx) % gw, (gy + dy) % gh), ()):
+                    if wrap_dist(p, q) < (rad + qr) * OVERLAP + gap:
+                        return False
+        return True
+
+    def add(p, rad):
+        grid.setdefault((int(p[0] // cell) % gw, int(p[1] // cell) % gh), []).append((p, rad))
+
+    def pick(p, tier):
+        near = {it[6] for it in placed if wrap_dist(p, it[0]) < 620}
+        pool = [(ic, w, m) for (ic, w, m, t) in ICONS if tier in t and ic not in near] or \
+               [(ic, w, m) for (ic, w, m, t) in ICONS if tier in t]
+        total = sum(w for _, w, _m in pool)
+        x = rng.uniform(0, total)
+        for ic, w, m in pool:
+            x -= w
+            if x <= 0:
+                return ic, m
+        return pool[-1][0], pool[-1][2]
+
+    # Закоханий кіт — першим, на своїх місцях; у сітку — його обрис колами.
+    cat_reach = reach_of(LYING_CAT_STROKE)
+    for (p, tilt, s, mirror) in LYING_CAT_SPOTS:
+        placed.append((p, (LYING_CAT_STROKE, LYING_CAT_FILL), tilt, s, mirror, cat_reach * s, 'lying_cat'))
+        a = math.radians(tilt)
+        for (x, y, r) in LYING_CAT_FOOT:
+            x = -x if mirror else x
+            add(((p[0] + (x * math.cos(a) - y * math.sin(a)) * s) % W,
+                 (p[1] + (x * math.sin(a) + y * math.cos(a)) * s) % H), r * s)
+
+    for tier, (s0, s1), tries, gap in TIERS:
+        for _ in range(tries):
+            p = (rng.uniform(0, W), rng.uniform(0, H))
+            s = rng.uniform(s0, s1)
+            ic, can_mirror = pick(p, tier)
+            rad = reach[ic] * s
+            if not fits(p, rad, gap):
+                continue
+            mirror = can_mirror and rng.random() < 0.5
+            placed.append((p, drawn[ic], rng.uniform(-TILT, TILT), s, mirror, rad, ic))
+            add(p, rad)
+
+    small = []
+    kinds = [('sparkle', 9), ('sparkle', 6.5), ('ring', 4.5), ('dot', 2.2)]
+    for _ in range(FILL_TRIES):
+        p = (rng.uniform(0, W), rng.uniform(0, H))
+        kind, rad = rng.choice(kinds)
+        if not fits(p, rad + 2, 14):
+            continue
+        small.append((p, kind, rng.uniform(0, 45), rad))
+        add(p, rad + 2)
+    return placed, small
 
 
-def logo_group(chosen):
+def copies(p, reach):
+    """Позиції малюнка з урахуванням повтору плитки (біля краю — ще й з
+    протилежного боку)."""
+    xs = [p[0]] + ([p[0] + W] if p[0] < reach else []) + ([p[0] - W] if p[0] > W - reach else [])
+    ys = [p[1]] + ([p[1] + H] if p[1] < reach else []) + ([p[1] - H] if p[1] > H - reach else [])
+    return [(x, y) for x in xs for y in ys]
+
+
+def svg(placed, small, tiles=(1, 1)):
+    tw, th = tiles
     parts = []
-    for k, g in enumerate(chosen):
-        x0, y0, x1, y1 = g['box']
-        # Трохи більший за прибраний малюнок — довкола нього порожньо, а
-        # знак, вписаний упритул, виходив дрібнішим за сусідів.
-        s = min((x1 - x0) / LOGO_W, (y1 - y0) / LOGO_H) * 1.12
-        # …але не завеликий: як середній малюнок узору.
-        s = min(s, LOGO_MAX / LOGO_H)
-        cx, cy = g['center']
-        parts.append(
-            '<path transform="translate(%s %s) rotate(%s) scale(%s) '
-            'translate(%s %s)" stroke-width="%s" d="%s"/>'
-            % (fmt(cx), fmt(cy), ANGLES[k % len(ANGLES)], ('%.4f' % s),
-               fmt(-LOGO_W / 2), fmt(-LOGO_H / 2), fmt(LINE / s), LOGO))
-    return ('<g fill="none" stroke="#000" stroke-linejoin="round" '
-            'stroke-linecap="round">' + ''.join(parts) + '</g>')
-
-
-def render():
-    svg, path_re, paths, items, groups, chosen, cats = build()
-    drop = set()
-    for g in chosen + cats:
-        for k in g['members']:
-            drop.add(id(items[k][1]))
-    new_ds = []
-    for sps in paths:
-        kept = [sp['text'] for sp in sps if id(sp) not in drop]
-        new_ds.append(''.join(kept))
-    it = iter(new_ds)
-    out = path_re.sub(lambda m: '<path d="%s"/>' % next(it), svg)
-    # Знаки — поруч із малюнками, у тій самій обрізці плитки.
-    extra = logo_group(chosen) + cat_group(cats)
-    out = out.replace('</g><defs>', '</g>' + extra + '<defs>', 1)
-    if extra not in out:
-        raise SystemExit('не знайшов місця для знаків (</g><defs>)')
-    return out, chosen, cats
+    for (p, d, tilt, s, mirror, rad, _ic) in placed:
+        sx = -s if mirror else s
+        d, dfill = d if isinstance(d, tuple) else (d, None)
+        for (x, y) in copies(p, rad + LINE):
+            tr = 'translate(%s %s) rotate(%s) scale(%s %s)' % (
+                f(x), f(y), f(tilt), ('%.3f' % sx).rstrip('0'), ('%.3f' % s).rstrip('0'))
+            parts.append('<path transform="%s" stroke-width="%s" d="%s"/>' % (tr, f(LINE / s), d))
+            if dfill:
+                # Суцільні плями (зіниці, носик) — заливка, відблиски — дірки
+                parts.append('<path transform="%s" fill="#000" fill-rule="evenodd" '
+                             'stroke="none" d="%s"/>' % (tr, dfill))
+    for (p, kind, rot, rad) in small:
+        if kind == 'sparkle':
+            d = soften(sparkle(0, 0, rad), 1.6)
+        elif kind == 'ring':
+            d = circle(0, 0, 5)
+        elif kind == 'dot':
+            d = circle(0, 0, 2)
+        else:
+            d = line((-6, 0), (6, 0)) + line((0, -6), (0, 6))
+        for (cx, cy) in copies(p, 14):
+            parts.append('<path transform="translate(%s %s) rotate(%s)" d="%s"/>' % (
+                f(cx), f(cy), f(rot), d))
+    body = ''.join(parts)
+    if tiles == (1, 1):
+        return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
+                'viewBox="0 0 %d %d" fill="none" stroke="#000" stroke-width="%s" '
+                'stroke-linecap="round" stroke-linejoin="round"><g clip-path="url(#a)">%s</g>'
+                '<defs><clipPath id="a"><path d="M0 0h%dv%dH0z"/></clipPath></defs></svg>') % (
+                    W, H, W, H, f(LINE), body, W, H)
+    uses = ''.join('<g transform="translate(%d %d)"><g clip-path="url(#a)">%s</g></g>' % (
+        i * W, j * H, body) for i in range(tw) for j in range(th))
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
+            'viewBox="0 0 %d %d" fill="none" stroke="#000" stroke-width="%s" '
+            'stroke-linecap="round" stroke-linejoin="round">%s'
+            '<defs><clipPath id="a"><path d="M0 0h%dv%dH0z"/></clipPath></defs></svg>') % (
+                W * tw, H * th, W * tw, H * th, f(LINE), uses, W, H)
 
 
 def main():
-    if '--list' in sys.argv:
-        _, _, _, _, groups, chosen, cats = build()
-        sizes = sorted(groups, key=lambda g: -(g['box'][2] - g['box'][0]))
-        print('малюнків:', len(groups))
-        for g in chosen:
-            x0, y0, x1, y1 = g['box']
-            print('вибрано: %4d,%4d  %3dx%3d' % (x0, y0, x1 - x0, y1 - y0))
-        for g in cats:
-            x0, y0, x1, y1 = g['box']
-            print('кіт:     %4d,%4d  %3dx%3d' % (x0, y0, x1 - x0, y1 - y0))
-        return
-    out, chosen, cats = render()
+    # Консоль Windows (cp1251) не друкує «→» — пишемо в UTF-8.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    placed, small = build()
     if '--preview' in sys.argv:
-        dest = sys.argv[sys.argv.index('--preview') + 1]
-        io.open(dest, 'w', encoding='utf-8').write(out)
-        print('preview:', dest)
+        out = sys.argv[sys.argv.index('--preview') + 1]
+        with open(out, 'w', encoding='utf-8') as fh:
+            fh.write(svg(placed, small, tiles=(2, 2)))
+        print('→', out, len(placed), 'малюнків,', len(small), 'дрібних')
         return
+    doc = svg(placed, small)
+    for path in (WEB_OUT, ASSET_OUT):
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(doc)
+        print('→', os.path.normpath(path), '%d КБ' % (len(doc) // 1024))
     ts = (
-        '// ЗГЕНЕРОВАНО (mobile/scripts/chat-pattern.py) з\n'
-        '// web/static/chat-pattern.svg — узор шпалер чату сайту, і на місці\n'
-        '// кількох малюнків — знак Zunor і кіт-маскот контуром (власник).\n'
-        '// Рядком у бандлі, а не файлом-ресурсом: Skia розбирає його одразу, без\n'
-        '// завантаження й растеризації, тож шпалери стоять із першого кадру.\n'
-        '// Змінився узор на сайті — `python scripts/chat-pattern.py`.\n'
+        '// ЗГЕНЕРОВАНО (mobile/scripts/chat-pattern.py) — НАШ узор шпалер чату:\n'
+        '// предмети прибирання, котик, знак Zunor, намальовані кодом (узор\n'
+        '// Telegram прибрано — авторське право). Той самий, що\n'
+        '// web/static/chat-pattern.svg. Рядком у бандлі, а не файлом-ресурсом:\n'
+        '// Skia розбирає його одразу, тож шпалери стоять із першого кадру.\n'
+        '// Змінити узор — правити скрипт і `python scripts/chat-pattern.py`.\n'
         '// prettier-ignore\n'
-        'export const CHAT_PATTERN_SVG =\n  %s\n' % json.dumps(out, ensure_ascii=False)
-    )
-    io.open(OUT, 'w', encoding='utf-8', newline='\n').write(ts)
-    print('записав', os.path.relpath(OUT), '— знаків:', len(chosen),
-          'котів:', len(cats))
+        'export const CHAT_PATTERN_SVG =\n  ' +
+        '"' + doc.replace('\\', '\\\\').replace('"', '\\"') + '"\n')
+    with open(TS_OUT, 'w', encoding='utf-8') as fh:
+        fh.write(ts)
+    print('→', os.path.normpath(TS_OUT), len(placed), 'малюнків,', len(small), 'дрібних')
 
 
 if __name__ == '__main__':

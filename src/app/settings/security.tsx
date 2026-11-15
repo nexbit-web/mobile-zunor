@@ -15,7 +15,6 @@ import {
 
 import { GoogleTile } from '@/components/icons/brand-tiles'
 import { Glyph } from '@/components/icons/glyph'
-import { CatScene } from '@/components/mascot/cat-scene'
 import { queryClient } from '@/components/providers'
 import {
   ActionRow,
@@ -27,6 +26,7 @@ import {
   SettingsScroll,
   TINT,
 } from '@/components/settings/list'
+import { PadlockArt } from '@/components/settings/padlock-art'
 import { Button } from '@/components/ui/button'
 import { GlowButton } from '@/components/ui/glow-button'
 import { api, errorText } from '@/lib/api'
@@ -59,8 +59,9 @@ export default function SecuritySettings() {
     >
       {(data) => (
         <SettingsScroll>
-          {/* Угорі — кіт-грабіжник, що не може відімкнути замок (власник). */}
-          <CatScene scene="lock" />
+          {/* Угорі — замок, який ключ не може відімкнути (по колу). Ключ у
+              стилі Telegram (240 КБ) — в archive/key у корені: важкий. */}
+          <PadlockArt />
 
           {data.hasPassword ? (
             <PasswordForm />

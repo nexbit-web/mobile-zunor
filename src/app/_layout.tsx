@@ -92,6 +92,16 @@ export default function RootLayout() {
                   name="order/[id]"
                   options={{ ...WITH_BELL, title: 'Замовлення' }}
                 />
+                {/* Профіль другої сторони: клієнтові — майстер (з пропозиції,
+                  замовлення), майстрові — клієнт (із заявки, замовлення). */}
+                <Stack.Screen
+                  name="master/[id]"
+                  options={{ ...OVERLAY, title: 'Майстер' }}
+                />
+                <Stack.Screen
+                  name="client/[id]"
+                  options={{ ...OVERLAY, title: 'Клієнт' }}
+                />
                 <Stack.Screen
                   name="notifications"
                   options={{ ...OVERLAY, title: 'Сповіщення' }}

@@ -530,31 +530,49 @@ function Peer({ order, viewer }: { order: OrderDetail; viewer: Viewer }) {
     )
   }
 
+  // Профіль другої сторони (власник): клієнтові — рейтинг, портфоліо й
+  // відгуки майстра, майстрові — відгуки інших майстрів про клієнта.
+  function openProfile() {
+    if (viewer === 'client') {
+      router.push({ pathname: '/master/[id]', params: { id: order.masterId } })
+    } else {
+      router.push({ pathname: '/client/[id]', params: { id: order.clientId } })
+    }
+  }
+
   return (
     <View className="gap-2.5">
       <Section title={viewer === 'client' ? 'Майстер' : 'Клієнт'}>
-        <InfoRow
-          leading={<Avatar uri={peer.avatar} name={name} size={40} />}
-          caption={caption}
-          value={
-            <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
-              <View className="shrink flex-row items-center gap-1.5">
-                <Text
-                  numberOfLines={1}
-                  className="shrink text-[17px] font-semibold tracking-[-0.2px] text-foreground"
-                >
-                  {name}
-                </Text>
-                {viewer === 'client' && order.master.isVerified ? (
-                  <Glyph name="verified" size={15} color={c.primary} />
+        <Pressable
+          onPress={openProfile}
+          accessibilityRole="button"
+          accessibilityLabel={`${name}, профіль`}
+          className="active:bg-secondary"
+        >
+          <InfoRow
+            leading={<Avatar uri={peer.avatar} name={name} size={40} />}
+            caption={caption}
+            value={
+              <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
+                <View className="shrink flex-row items-center gap-1.5">
+                  <Text
+                    numberOfLines={1}
+                    className="shrink text-[17px] font-semibold tracking-[-0.2px] text-foreground"
+                  >
+                    {name}
+                  </Text>
+                  {viewer === 'client' && order.master.isVerified ? (
+                    <Glyph name="verified" size={15} color={c.primary} />
+                  ) : null}
+                </View>
+                {peer.reviewsCount > 0 ? (
+                  <Rating value={peer.avgRating} count={peer.reviewsCount} />
                 ) : null}
               </View>
-              {peer.reviewsCount > 0 ? (
-                <Rating value={peer.avgRating} count={peer.reviewsCount} />
-              ) : null}
-            </View>
-          }
-        />
+            }
+            right={<Chevron />}
+          />
+        </Pressable>
         <InfoRow
           leading={<Tile icon="phone" tint={TINT.green} />}
           caption="Телефон"
@@ -630,6 +648,16 @@ function ContactButton({
         {label}
       </Text>
     </Pressable>
+  )
+}
+
+/** Шеврон iOS — як у рядках налаштувань (Row): веде глибше. */
+function Chevron() {
+  const c = useColors()
+  return (
+    <View style={{ opacity: 0.5 }}>
+      <Glyph name="chevron" size={13} color={c.mutedForeground} weight="semibold" />
+    </View>
   )
 }
 

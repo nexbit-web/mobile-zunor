@@ -103,6 +103,8 @@ export interface JobDetail {
     /** нове: район (не адреса) і відстань від району глядача */
     place?: { district: string | null; distanceKm: number | null }
     client: {
+      /** Сервер шле давно; потрібен для профілю клієнта (/client/[id]). */
+      id?: string
       name: string | null
       avatar?: string | null
       avgRating: number

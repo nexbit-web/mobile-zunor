@@ -13,7 +13,6 @@ import Svg, { Path } from 'react-native-svg'
 
 import catDress from '@/assets/animations/cat-dress.json'
 import catHello from '@/assets/animations/cat-hello.json'
-import catLock from '@/assets/animations/cat-lock.json'
 import catShow from '@/assets/animations/cat-show.json'
 import catThink from '@/assets/animations/cat-think.json'
 
@@ -29,19 +28,15 @@ const SCENES = {
   /** «Покажіть себе клієнтам»: показує свій профіль на планшеті. */
   show: { source: catShow, w: 740, h: 690, width: 250, bubble: 'speech' },
   /**
-   * «Безпека» в налаштуваннях: кіт-грабіжник у масці не може відімкнути
-   * замок. Невелика картинка вгорі екрана, без хмаринки.
-   */
-  lock: { source: catLock, w: 870, h: 690, width: 210, bubble: 'speech' },
-  /**
-   * «Вигляд» у налаштуваннях: за котом крутяться кружечки кольорів —
-   * обрав, і кіт міняє стиль (леопард, рокер, лев). Нерухомий кадр —
-   * леопард із розплющеними очима (на 0 — саме зміна, очі заплющені).
+   * «Вигляд» у налаштуваннях (scripts/mascot/dress.mjs): сидячий кіт, над
+   * ним ряд кружечків-кольорів — ряд зсувається, кіт кліпає й уже в новому
+   * стилі (леопард, рокер з ірокезом, лев). Нерухомий кадр — леопард із
+   * розплющеними очима (на 0 — саме зміна, очі заплющені).
    */
   dress: {
     source: catDress,
-    w: 680,
-    h: 804,
+    w: 1200,
+    h: 1500,
     width: 180,
     bubble: 'speech',
     still: 0.125,

@@ -3,7 +3,14 @@ import * as Haptics from 'expo-haptics'
 import { router, Stack, useLocalSearchParams } from 'expo-router'
 import * as WebBrowser from 'expo-web-browser'
 import { useState } from 'react'
-import { Alert, Platform, RefreshControl, Text, View } from 'react-native'
+import {
+  Alert,
+  Platform,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+} from 'react-native'
 import Animated from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -485,36 +492,11 @@ function JobBody({
         </Section>
       ) : null}
 
-      {/* ─── Замовник (майстрові) ─── */}
+      {/* ─── Замовник (майстрові) — дотик відкриває його профіль: відгуки
+          інших майстрів про нього, перш ніж відгукнутись (власник). ─── */}
       {master ? (
         <Section title="Замовник">
-          <InfoRow
-            leading={
-              <Avatar
-                uri={job.client.avatar}
-                name={job.client.name ?? 'Замовник'}
-                size={30}
-              />
-            }
-            caption={
-              job.client.createdAt
-                ? `На Zunor з ${memberSince(job.client.createdAt)}`
-                : 'Замовник'
-            }
-            value={
-              <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
-                <Text className="text-[17px] font-semibold tracking-[-0.2px] text-foreground">
-                  {job.client.name ?? 'Замовник'}
-                </Text>
-                {job.client.reviewsCount > 0 ? (
-                  <Rating
-                    value={job.client.avgRating}
-                    count={job.client.reviewsCount}
-                  />
-                ) : null}
-              </View>
-            }
-          />
+          <ClientRow client={job.client} />
           {/* Чесно, як «Показати телефон» у work.ua: номер — лише після
               вибору майстра (захист контактів до угоди). */}
           <InfoRow
@@ -567,6 +549,59 @@ function JobBody({
 
       <MetaLine items={footer} />
     </>
+  )
+}
+
+/**
+ * Замовник у заявці майстра: фото, імʼя, рейтинг від інших майстрів; дотик
+ * — його профіль (/client/[id]). Старий сервер без id — просто рядок.
+ */
+function ClientRow({ client }: { client: JobDetail['job']['client'] }) {
+  const c = useColors()
+  const name = client.name ?? 'Замовник'
+  const row = (
+    <InfoRow
+      leading={<Avatar uri={client.avatar} name={name} size={30} />}
+      caption={
+        client.createdAt
+          ? `На Zunor з ${memberSince(client.createdAt)}`
+          : 'Замовник'
+      }
+      value={
+        <View className="flex-row flex-wrap items-center gap-x-2 gap-y-1">
+          <Text className="text-[17px] font-semibold tracking-[-0.2px] text-foreground">
+            {name}
+          </Text>
+          {client.reviewsCount > 0 ? (
+            <Rating value={client.avgRating} count={client.reviewsCount} />
+          ) : null}
+        </View>
+      }
+      right={
+        client.id ? (
+          <View style={{ opacity: 0.5 }}>
+            <Glyph
+              name="chevron"
+              size={13}
+              color={c.mutedForeground}
+              weight="semibold"
+            />
+          </View>
+        ) : undefined
+      }
+    />
+  )
+  const id = client.id
+  if (!id) return row
+  return (
+    <Pressable
+      onPress={() => router.push({ pathname: '/client/[id]', params: { id } })}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, профіль замовника`}
+      className="active:bg-secondary"
+    >
+      {row}
+    </Pressable>
   )
 }
 

@@ -16,16 +16,21 @@
 //   show  — «Покажіть себе клієнтам»: тримає планшет зі своїм профілем;
 //   champion — анкету надіслано: піднімає кубок, конфеті (кубок і конфеті
 //           — з `champion.source.json`, на кубку замість зірки знак Zunor);
-//   lock  — «Безпека» в налаштуваннях: кіт-грабіжник у чорній масці
-//           пробує відімкнути замок чужим ключем — не виходить.
-//   dress — «Вигляд» у налаштуваннях: за котом крутяться кружечки кольорів,
-//           обрав — кіт міняє стиль (леопард, рокер, лев).
+//   lock  — кіт-грабіжник у чорній масці пробує відімкнути замок чужим
+//           ключем — не виходить. ЗАРАЗ НЕ ВИКОРИСТОВУЄТЬСЯ (власник
+//           прибрав кота з «Безпеки»): збирається в ../archive/cat-lock;
+//   («Вигляд» у налаштуваннях — інший, сидячий кіт: окремий генератор
+//   dress.mjs.)
+//   search — заявку опубліковано, шукаємо майстра: кіт водить лупою, під
+//           склом на мапі виринають шпильки — майстри поруч. ЗАРАЗ НЕ
+//           ВИКОРИСТОВУЄТЬСЯ (власник обрав зелений кружечок із конфеті):
+//           збирається в ../archive/cat-search, а не в застосунок.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { A, K, Path, dashed, el, fill, group, morph, rc, shapeLayer, smooth, star, stroke, sway, tr, trim, twinkle } from './lottie-kit.mjs'
+import { A, K, Path, el, fill, group, morph, rc, shapeLayer, smooth, star, stroke, sway, tr, trim, twinkle } from './lottie-kit.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outDir = join(here, '..', '..', 'assets', 'animations')
@@ -119,12 +124,12 @@ const EYE_R = [758, 436]
  *  fur    — окрас (GINGER за замовчуванням), `bands` — свої кольори смужок хвоста;
  *  total, breathe — довжина петлі й період подиху (кадри, кратні);
  *  blinkKeys — свої ключі кліпання (замість blinkAt);
- *  costume {front, paint, back, neck, coat, tail, body, noEars} — костюм (сцена «Вигляд»).
+ *  costume {front, paint, back, neck, coat, tail, body, noEars} — костюм (сцена «Вигляд»);
  */
 function sittingCat(pose) {
-  const { pivot, tilt, look, blinkAt, twitch, mouth = 'smile', brows = false, chinPaw = false, hold = false, wink, raise = false, key = false, mask = false, browKeys, sweat, joy, tailWag = 90, fur = GINGER, total = OP, breathe = 90, blinkKeys, costume = {} } = pose
-  // Права передня лапа зайнята (підборіддя, кубок, ключ) — на грудях лише ліва.
-  const oneArm = chinPaw || raise || key
+  const { pivot, tilt, look, blinkAt, twitch, mouth = 'smile', brows = false, chinPaw = false, hold = false, wink, raise = false, key = false, search = false, mask = false, browKeys, sweat, joy, tailWag = 90, fur = GINGER, total = OP, breathe = 90, blinkKeys, costume = {} } = pose
+  // Права передня лапа зайнята (підборіддя, кубок, ключ, лупа) — на грудях лише ліва.
+  const oneArm = chinPaw || raise || key || search
   // Подих: усе тіло ледь росте від підлоги, голова (й лапка під нею) — вгору.
   const lift = A(sway([...pivot, 0], [0, -5, 0], breathe, total), { spatial: true })
 
@@ -381,7 +386,7 @@ function sittingCat(pose) {
   // лапа — один силует: контур лише знадвору (усі контури під усіма
   // заливками). Поверх голови (лапа ПЕРЕД підборіддям) і підіймається з
   // подихом разом із головою — голова хилиться саме навколо неї.
-  const arm = chinPaw ? [chinPawLayer(lift, pivot)] : hold ? holdLayers(lift, pivot) : raise ? [trophyArmLayer()] : key ? keyArmLayers() : []
+  const arm = chinPaw ? [chinPawLayer(lift, pivot)] : hold ? holdLayers(lift, pivot) : raise ? [trophyArmLayer()] : key ? keyArmLayers() : search ? [magnifierArmLayer()] : []
 
   // Хвіст — товста «трубка» з-за лівого боку вгору, кінчик загнутий.
   // Смужки — відрізки тієї ж лінії. Гойдається від основи.
@@ -801,6 +806,136 @@ function padlock() {
   )
 }
 
+// ——— Лупа (сцена «Шукаємо майстра») ———————————————————————————————
+
+/** Куди дивиться рука з лупою (°, від плеча) — і як нею водить: `[кадр, зсув]`. */
+const LENS_DEG = -44
+const SWEEP = [
+  [0, 0],
+  [22, -10],
+  [50, -10],
+  [80, 12],
+  [112, 12],
+  [140, 0],
+  [180, 0],
+]
+/**
+ * Поки лупа стоїть, під склом на мапі виринає шпилька — знайшовся
+ * майстер: `[кадр появи, кадр, коли сховалась, колір]`.
+ */
+const FOUND = [
+  [26, 48, PINK],
+  [86, 108, GOLD],
+  [146, 172, MINT],
+]
+/** Плече, довжина руки до лапи, центр скла від лапи, радіус скла. */
+const LENS_ARM = { S: [812, 700], len: 176, glass: 158, R: 84 }
+
+/** Центр скла в кадрі, коли рука повернута на `shift` від LENS_DEG. */
+function lensCenter(shift) {
+  const { S, len, glass } = LENS_ARM
+  const r = ((LENS_DEG + shift) * Math.PI) / 180
+  return [S[0] + Math.cos(r) * (len + glass), S[1] + Math.sin(r) * (len + glass)]
+}
+
+/** Шпилька на мапі: кінчик у (0, 0), голівка з білою цяткою вгорі. */
+function pinShapes(color) {
+  return [
+    group('dot', [el(0, -66, 30), stroke(INK, 7), fill(WHITE)]),
+    group('pin', [smooth([[0, 0], [-22, -34], [-34, -62], [-26, -90], [0, -104], [26, -90], [34, -62], [22, -34]], { sharp: [0] }).shape(), stroke(INK, 9), fill(color)]),
+  ]
+}
+
+/**
+ * Поза «шукає»: права лапа тримає лупу вгорі збоку й повільно водить нею
+ * (вище — правіше — назад), щоразу зупиняючись. Під склом — мапа: вулички
+ * й шпилька, що виринає, поки лупа стоїть, — з кружечком-«пінгом», як
+ * сповіщення, що пішло майстру. Мапа тримається рівно, хоч рука й
+ * повертається (крутиться назад на стільки ж). Рука, лапа й лупа — один
+ * шар, що повертається навколо плеча; лупа — від лапи вздовж руки.
+ */
+function magnifierArmLayer() {
+  const { S, len, glass: C, R } = LENS_ARM
+  const d = [Math.cos((LENS_DEG * Math.PI) / 180), Math.sin((LENS_DEG * Math.PI) / 180)]
+  const n = [-d[1], d[0]]
+  const at = (p, along, across) => [p[0] + d[0] * along + n[0] * across, p[1] + d[1] * along + n[1] * across]
+  const P = at(S, len, 0)
+  const paw = pawParts(P, [d[1], -d[0]])
+  const armShapes = () => [
+    el(S[0], S[1], 64),
+    smooth([at(S, 0, 31), at(P, 0, 24), at(P, 0, -24), at(S, 0, -31)], { sharp: [0, 1, 2, 3] }).shape(),
+  ]
+  const bands = [0.4, 0.64].map((share) => {
+    const c = at(S, len * share, 0)
+    return line([at(c, -4, 21), at(c, 4, -21)])
+  })
+
+  // Те, що під склом, — у координатах скла (центр — 0, 0), рівно.
+  const upright = A(SWEEP.map(([t, v]) => [t, -LENS_DEG - v]))
+  const RIM = 14
+  const found = FOUND.map(([from, to, color], i) =>
+    group(`found ${i}`, [
+      group('pin', pinShapes(color), {
+        p: [0, 24],
+        s: A([
+          [from, [0, 0], 'out'],
+          [from + 10, [52, 52]],
+          [to - 8, [52, 52], 'in'],
+          [to, [0, 0]],
+        ]),
+      }),
+      group('ping', [el(0, 0, 96, 30), stroke(color, 6)], {
+        p: [0, 26],
+        s: A([
+          [from + 4, [0, 0], 'out'],
+          [from + 22, [100, 100]],
+        ]),
+        o: A([
+          [from + 4, 0],
+          [from + 5, 90],
+          [from + 22, 0],
+        ]),
+      }),
+    ]),
+  )
+  const view = group(
+    'view',
+    [
+      group('shine', [line([[-42, -20], [-34, -36], [-20, -46]]), stroke(WHITE, 9)]),
+      ...found,
+      group('roads', [line([[-70, 20], [70, 20]]), line([[-26, -70], [-26, 70]]), line([[12, -66], [66, -14]]), stroke(WHITE, 10)]),
+      group('glass', [el(0, 0, R * 2), fill(SKY)]),
+    ],
+    { p: [C, 0], r: upright },
+  )
+  const ring = () => el(C, 0, R * 2)
+  const magnifier = group(
+    'magnifier',
+    [
+      group('rim', [group('fill', [ring(), stroke(BLUE, RIM)]), group('outline', [ring(), stroke(INK, RIM + LINE * 2)])]),
+      view,
+      group('collar', [rc(C - R - 8, 0, 20, 36, 6), stroke(INK, 8), fill(STEEL)]),
+      tube('handle', [[-46, 0], [C - R, 0]], WOOD, 24),
+    ],
+    { p: P, r: LENS_DEG },
+  )
+
+  return shapeLayer(
+    'magnifier arm',
+    [
+      silhouette('paw', paw.shapes, ORANGE, [group('lines', [...paw.lines, stroke(INK, 7)])]),
+      magnifier,
+      silhouette('arm', armShapes, ORANGE, [group('stripes', [...bands, stroke(ORANGE_DEEP, 11)])]),
+    ],
+    {
+      p: A(sway([...S, 0], [0, -4, 0], 90, OP), { spatial: true }),
+      a: [...S, 0],
+      r: A(SWEEP),
+      op: OP,
+    },
+  )
+}
+
 /** Котяча мордочка-аватарка. */
 function kitty(x, y, d) {
   const r = d / 2
@@ -969,6 +1104,44 @@ const LOCK = {
   ],
   sweat: 126,
   key: true,
+}
+
+// Шукає: дивиться крізь лупу (вище — правіше), голова хилиться за нею;
+// на третій шпильці — зиркає на людину: «Знайшов!»
+const LENS_MID = [[632, 431], [768, 434]]
+const LENS_UP = [[631, 426], [767, 429]]
+const LENS_RIGHT = [[633, 436], [769, 438]]
+const SEARCH = {
+  pivot: [690, 640],
+  tilt: [
+    [0, 2],
+    [22, 5],
+    [50, 5],
+    [80, 1],
+    [112, 1],
+    [140, 2],
+    [146, 2],
+    [152, -2],
+    [166, -2],
+    [174, 2],
+    [180, 2],
+  ],
+  look: [
+    [0, ...LENS_MID],
+    [20, ...LENS_UP],
+    [50, ...LENS_UP],
+    [78, ...LENS_RIGHT],
+    [112, ...LENS_RIGHT],
+    [138, ...LENS_MID],
+    [146, ...LENS_MID],
+    [152, ...AHEAD],
+    [166, ...AHEAD],
+    [174, ...LENS_MID],
+    [180, ...LENS_MID],
+  ],
+  blinkAt: [62, 122],
+  twitch: { left: 96, right: 36 },
+  search: true,
 }
 
 // ——— Речі ——————————————————————————————————————————————————————
@@ -1179,272 +1352,41 @@ function lockScene() {
   return scene('cat-lock', [sparks, ...cat.top, padlock(), cat.shadow, shadow], { x: 320, y: 290, w: 870, h: 690 })
 }
 
-// ——— «Вигляд»: кіт у різних стилях ————————————————————————————————
-
-const DRESS_TOTAL = 240 // 8 с: три стилі по 80 кадрів
-/** Кадри, коли кіт міняє стиль (240 — це знову 0). */
-const SWAPS = [80, 160, 240]
-const RING = '#a1a1aa'
-const STEEL_LIGHT = '#dfe4ea'
-
-/** Брови «суворо»: внутрішні кінці опущені. */
-const angryBrows = () => group('brows', [line([[584, 356], [616, 360], [648, 378]]), line([[732, 378], [764, 360], [796, 356]]), stroke(INK, 11)])
-
-/** Шипи від маківки назовні: `[кут, довжина назовні, ширина основи]`; основи — за головою. */
-function spikes(list, color, shine) {
-  const C = [690, 480]
-  return list.map(([deg, len, w]) => {
-    const a = (deg * Math.PI) / 180
-    const d = [Math.cos(a), Math.sin(a)]
-    const n = [-d[1], d[0]]
-    const b = [C[0] + 215 * d[0] * 0.92, C[1] + 150 * d[1] * 0.92]
-    const t = [b[0] + d[0] * len, b[1] + d[1] * len]
-    const k = (q) => [b[0] + (t[0] - b[0]) * q + n[0] * w * 0.08, b[1] + (t[1] - b[1]) * q + n[1] * w * 0.08]
-    return group(`spike ${deg}`, [
-      ...(shine ? [group('shine', [line([k(0.2), k(0.7)]), stroke(shine, 6)])] : []),
-      group('spike', [
-        smooth([[b[0] - (n[0] * w) / 2, b[1] - (n[1] * w) / 2], t, [b[0] + (n[0] * w) / 2, b[1] + (n[1] * w) / 2]], { sharp: [0, 1, 2] }).shape(),
-        stroke(INK, LINE),
-        fill(color),
-      ]),
-    ])
-  })
-}
-
-// Леопард: золотий у розетках, кільця на хвості, ікла, суворі брови.
-const SPOT = '#3a1d0c'
-const LEOPARD_FUR = { base: '#f6b630', light: '#fff0c4', dark: '#f6b630', deep: '#f6b630', ear: '#6b3410', bands: [SPOT, SPOT, SPOT] }
-/** Розетка — уривчасте темне кільце довкола темнішого золота. */
-const rosette = (x, y, r) => group(`rosette ${x}`, [el(x, y, r * 2, r * 1.7), dashed(stroke(SPOT, 8), r * 0.9, r * 0.5), fill('#e0951b')])
-const spot = (x, y, r) => group(`spot ${x}`, [el(x, y, r * 2, r * 1.8), fill(SPOT)])
-function leopardCostume() {
-  return {
-    front: [
-      angryBrows(),
-      group('fangs', [
-        smooth([[628, 524], [654, 530], [643, 562]], { sharp: [0, 1, 2] }).shape(),
-        smooth([[700, 535], [724, 533], [714, 563]], { sharp: [0, 1, 2] }).shape(),
-        stroke(INK, 5),
-        fill(WHITE),
-      ]),
-    ],
-    paint: [
-      // Лоб зайнятий бровами — розетки на скронях, між бровами — цятка.
-      spot(690, 360, 8),
-      rosette(526, 410, 14),
-      rosette(856, 412, 14),
-      rosette(518, 470, 18),
-      rosette(862, 474, 17),
-      spot(540, 548, 9),
-      spot(562, 582, 7),
-      spot(838, 548, 9),
-      spot(818, 584, 7),
-    ],
-    coat: [
-      rosette(532, 700, 22),
-      rosette(848, 700, 22),
-      rosette(522, 842, 22),
-      rosette(858, 842, 22),
-      spot(586, 772, 9),
-      spot(796, 772, 9),
-      spot(482, 884, 8),
-      spot(898, 884, 8),
-    ],
-  }
-}
-
-// Рокер: червоний, без вух, бірюзовий ірокез-шипи, нашийник із шипами,
-// блискавка через око, кільце в носі.
-const ROCKER_FUR = { base: '#e8303f', light: '#ff8f93', dark: '#b3132b', deep: '#c41d34', ear: '#7a0f1f' }
-function rockerCostume() {
-  // Нижній край нашийника — для шипів.
-  const collarY = (x) => 684 + 28 * (1 - ((x - 690) / 102) ** 2)
-  return {
-    noEars: true,
-    back: spikes(
-      [
-        [-90, 150, 60],
-        [-110, 124, 52],
-        [-70, 124, 52],
-        [-130, 92, 44],
-        [-50, 92, 44],
-      ],
-      '#25e2e8',
-      '#b2fcff',
-    ),
-    front: [
-      angryBrows(),
-      // Кільце в носі: сталь із контуром.
-      group('septum', [el(697, 500, 22), stroke(STEEL_LIGHT, 5)]),
-      group('septum outline', [el(697, 500, 22), stroke(INK, 11)]),
-    ],
-    paint: [
-      group('bolt', [
-        smooth([[586, 352], [632, 352], [612, 416], [642, 416], [588, 526], [602, 448], [572, 448]], { sharp: [0, 1, 2, 3, 4, 5, 6] }).shape(),
-        stroke(INK, 6),
-        fill('#ffd23f'),
-      ]),
-    ],
-    neck: [
-      group('studs', [
-        ...[612, 651, 690, 729, 768].map((x) => {
-          const y = collarY(x) - 4
-          return smooth([[x - 12, y], [x + 12, y], [x, y + 28]], { sharp: [0, 1, 2] }).shape()
-        }),
-        stroke(INK, 5),
-        fill(STEEL_LIGHT),
-      ]),
-      group('collar', [smooth([[588, 648], [690, 674], [792, 648], [794, 684], [690, 712], [586, 684]], { sharp: [0, 2, 3, 5] }).shape(), stroke(INK, 8), fill('#24202b')]),
-    ],
-  }
-}
-
-// Лев: пісочний, темно-фіолетова грива (зверху пласкіша — не ховає
-// кружечки), китиця на хвості, шрам через око.
-const LION_FUR = { base: '#e8a64a', light: '#ffe2ae', dark: '#c47a24', deep: '#d48d35', ear: '#6b3410' }
-const MANE = '#3b1772'
-const MANE_MID = '#6230c4'
-function maneShape(rx, ry, ryTop, wave, n = 18) {
-  const pts = []
-  for (let i = 0; i < n * 2; i++) {
-    const a = (i / (n * 2)) * Math.PI * 2 - Math.PI / 2
-    const out = i % 2 === 0 ? 1 : 1 - wave
-    const ryA = Math.sin(a) < 0 ? ryTop : ry
-    pts.push([690 + rx * out * Math.cos(a), 492 + ryA * out * Math.sin(a)])
-  }
-  return smooth(pts).shape()
-}
-function lionCostume() {
-  const scar = [[800, 366], [778, 420], [758, 474], [742, 508]]
-  return {
-    back: [group('mane mid', [maneShape(262, 210, 170, 0.1), fill(MANE_MID)]), group('mane', [maneShape(300, 240, 200, 0.1), stroke(INK, LINE), fill(MANE)])],
-    front: [angryBrows()],
-    paint: [
-      group('stitches', [line([[782, 378], [804, 390]]), line([[766, 408], [790, 420]]), line([[746, 490], [768, 500]]), stroke(INK, 5)]),
-      group('scar', [line(scar), stroke('#ffd2cc', 9)]),
-      group('scar outline', [line(scar), stroke(INK, 15)]),
-    ],
-    tail: [group('tuft', [smooth([[404, 706], [394, 674], [412, 640], [436, 618], [448, 648], [464, 672], [454, 704], [430, 716]]).shape(), stroke(INK, LINE), fill(MANE)])],
-  }
-}
-
-/** Поза для «Вигляду»: дивиться вгору на кружечки, поки ті крутяться; на зміні — кліп. */
-const DRESS = {
-  pivot: [690, 640],
-  tilt: sway(-2.5, 5, 80, DRESS_TOTAL),
-  look: [
-    [0, ...UP],
-    [6, ...AHEAD],
-    ...SWAPS.flatMap((s) => [
-      [s - 18, ...AHEAD],
-      [s - 14, ...UP],
-    ]),
-    ...SWAPS.slice(0, -1).flatMap((s) => [
-      [s, ...UP],
-      [s + 6, ...AHEAD],
-    ]),
-  ].sort((a, b) => a[0] - b[0]),
-  // Очі заплющуються перед зміною й розплющуються вже в новому стилі.
-  blinkKeys: [
-    [0, [100, 8]],
-    [4, [100, 100]],
-    ...SWAPS.flatMap((s) => [
-      [s - 7, [100, 100]],
-      [s - 4, [100, 8]],
-      ...(s < DRESS_TOTAL
-        ? [
-            [s, [100, 8]],
-            [s + 4, [100, 100]],
-          ]
-        : [[s, [100, 8]]]),
-    ]),
-  ],
-  twitch: { left: 50, right: 124 },
-  total: DRESS_TOTAL,
-  breathe: 80,
-  tailWag: 80,
-}
-
 /**
- * «Вигляд» у налаштуваннях (власник, як качка в Telegram): за спиною кота
- * — ряд великих кольорових кружечків, трохи за головою; обраний — у
- * кільці по центру. Ряд прокручується на один, кіт заплющує очі — і вже
- * в новому стилі: леопард (ікла, розетки) → рокер (червоний, без вух,
- * ірокез, нашийник із шипами) → лев (фіолетова грива, шрам). Кольори
- * кружечків — просто яскраві, не акценти. Кожен стиль — окремий кіт у
- * своїй підкомпозиції, видимий лише свої 80 кадрів; на зміні кіт ледь
- * «вдихає» (96 %) і спалахують іскри.
+ * Заявку опубліковано — шукаємо майстра: кіт водить лупою, під склом на
+ * мапі виринають шпильки; щоразу поруч зі склом спалахує іскорка.
  */
-function dressScene() {
-  const total = DRESS_TOTAL
-  const styles = [
-    { id: 'leopard', dot: '#ffc21a', fur: LEOPARD_FUR, costume: leopardCostume() },
-    { id: 'rocker', dot: '#ff2e4d', fur: ROCKER_FUR, costume: rockerCostume() },
-    { id: 'lion', dot: '#6a33e0', fur: LION_FUR, costume: lionCostume() },
-  ]
-  const full = [100, 100, 100]
-  const small = [96, 96, 100]
-  const pulse = A([
-    [0, small, 'out'],
-    [8, full],
-    ...SWAPS.flatMap((s) => [[s - 8, full, 'in'], ...(s < total ? [[s, small, 'out'], [s + 8, full]] : [[s, small]])]),
-  ])
-  const assets = styles.map((st) => ({
-    id: `cat_${st.id}`,
-    nm: `cat ${st.id}`,
-    fr: FR,
-    layers: sittingCat({ ...DRESS, fur: st.fur, costume: st.costume }).top,
-  }))
-  const cats = styles.map((st, i) => ({
-    ddd: 0,
-    ind: 1200 + i,
-    ty: 0,
-    nm: `cat ${st.id}`,
-    refId: `cat_${st.id}`,
-    sr: 1,
-    ks: { o: K(100), r: K(0), p: K([690, 944, 0]), a: K([690, 944, 0]), s: pulse },
-    ao: 0,
-    w: 1400,
-    h: 1100,
-    ip: i === 0 ? 0 : SWAPS[i - 1],
-    op: SWAPS[i],
-    st: 0,
-    bm: 0,
-  }))
-
-  // Кружечки: нескінченна стрічка кольорів, по центру — кільце; низ ряду
-  // заходить за голову й вуха. Видно три; той, що виїжджає з краю,
-  // виростає, той, що їде за край, — меншає.
-  const C = [690, 268]
-  const GAP = 170
-  const steps = [0, ...SWAPS.flatMap((s) => [s - 14, s - 2]), total]
-  const shiftAt = steps.map((_, i) => Math.floor(i / 2))
-  const dots = []
-  for (let k = -1; k <= styles.length + 1; k++) {
-    const color = styles[((k % styles.length) + styles.length) % styles.length].dot
-    const rel = steps.map((t, i) => [t, k - shiftAt[i]])
-    dots.push(
-      group(`dot ${k}`, [el(0, 0, 84), stroke(INK, 7), fill(color)], {
-        p: A(rel.map(([t, r]) => [t, [C[0] + r * GAP, C[1]]])),
-        s: A(rel.map(([t, r]) => [t, Math.abs(r) <= 1 ? [100, 100] : [0, 0]])),
-      }),
-    )
+function searchScene() {
+  const cat = sittingCat(SEARCH)
+  const sparkle = (nm, [x, y], r, at) =>
+    group(nm, [star(0, 0, 4, r, r * 0.38, 0, 0, 25), stroke(INK, 6), fill(GOLD)], { p: [x, y], s: twinkle([at], 30) })
+  // Іскорка — за склом, з боку, де вільно.
+  const near = (shift, dx, dy) => {
+    const [x, y] = lensCenter(shift)
+    return [x + dx, y + dy]
   }
-  const picker = shapeLayer('picker', [group('ring', [el(C[0], C[1], 128), stroke(RING, 8)]), ...dots], { op: total })
-
-  const sparkle = (nm, x, y, r) =>
-    group(nm, [star(0, 0, 4, r, r * 0.38, 0, 0, 25), stroke(INK, 6), fill(GOLD)], { p: [x, y], s: twinkle([0, ...SWAPS.slice(0, -1)], 22) })
-  const sparks = shapeLayer('sparkles', [sparkle('s left', 430, 430, 24), sparkle('s right', 952, 420, 20), sparkle('s low', 948, 610, 15)], { op: total })
-  const shadow = sittingCat({ ...DRESS }).shadow
-
-  return scene('cat-dress', [sparks, ...cats, picker, shadow], { x: 330, y: 176, w: 680, h: 804 }, { assets, op: total })
+  const sparks = shapeLayer(
+    'sparkles',
+    [
+      sparkle('s up', near(-10, 92, -76), 28, FOUND[0][0] + 4),
+      sparkle('s right', near(12, 66, 96), 28, FOUND[1][0] + 4),
+      sparkle('s mid', near(0, -74, -92), 24, FOUND[2][0] + 4),
+    ],
+    { op: OP },
+  )
+  return scene('cat-search', [sparks, ...cat.top, cat.shadow], { x: 320, y: 290, w: 884, h: 690 })
 }
 
-const scenes = { hello: helloScene, think: thinkScene, show: showScene, champion: championScene, lock: lockScene, dress: dressScene }
+const scenes = { hello: helloScene, think: thinkScene, show: showScene, champion: championScene, lock: lockScene, search: searchScene }
 const only = process.argv[2]
+/** Сцени про запас: лежать в архіві в корені репозиторію, не в застосунку. */
+const parked = {
+  search: join(here, '..', '..', '..', 'archive', 'cat-search'),
+  lock: join(here, '..', '..', '..', 'archive', 'cat-lock'),
+}
 for (const [id, make] of Object.entries(scenes)) {
   if (only && only !== id) continue
-  const file = join(process.argv[3] ?? outDir, `cat-${id}.json`)
+  const file = join(process.argv[3] ?? parked[id] ?? outDir, `cat-${id}.json`)
   writeFileSync(file, compact(make()))
   console.log('→', file)
 }

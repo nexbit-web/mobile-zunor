@@ -24,6 +24,7 @@ import Animated, {
   FadeInUp,
   FadeOut,
   FadeOutDown,
+  LinearTransition,
   useAnimatedStyle,
 } from 'react-native-reanimated'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -35,7 +36,8 @@ import { ServiceBadge } from '@/components/icons/service-icon'
 import { Button } from '@/components/ui/button'
 import { RoundButton } from '@/components/ui/round-button'
 import { FooterBlur, HeaderFade } from '@/components/ui/header-fade'
-import { SQUIRCLE, Tile, TINT } from '@/components/ui/tile'
+import { SuccessBurst } from '@/components/ui/success-burst'
+import { SQUIRCLE } from '@/components/ui/tile'
 import { YieldToDrawer } from '@/components/ui/yield-to-drawer'
 import { api, ApiError, errorText } from '@/lib/api'
 import { CLIENT_DOCK, leaveChat, setChatKeepable } from '@/lib/dock'
@@ -100,6 +102,20 @@ const chipIn = (i: number) =>
     .delay(60 + Math.min(i, 6) * 70)
     .easing(Easing.out(Easing.cubic))
     .withInitialValues({ opacity: 0, transform: [{ translateY: 10 }] })
+
+/**
+ * Екран «Заявку опубліковано»: кружечок успіху плавно підіймається,
+ * звільняючи місце тексту (рівно, без пружин); заголовок, опис і кнопки
+ * випливають знизу по черзі.
+ */
+const SUCCESS_SETTLE = LinearTransition.duration(450).easing(
+  Easing.out(Easing.cubic),
+)
+const successRise = (i: number) =>
+  FadeInDown.duration(420)
+    .delay(i * 170)
+    .easing(Easing.out(Easing.cubic))
+    .withInitialValues({ opacity: 0, transform: [{ translateY: 18 }] })
 
 /**
  * Кнопка «Додати фото» від Zunor приходить мовою розмови, тож — за
@@ -176,6 +192,8 @@ export function ZunorChat() {
     title: string
   } | null>(null)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  /** Вибух успіху скінчився — тепер можна текст і кнопки. */
+  const [burstDone, setBurstDone] = useState(false)
   const [toast, setToast] = useState('')
 
   /** Фото до наступної репліки і вже надіслані (підуть у заявку). */
@@ -376,6 +394,16 @@ export function ZunorChat() {
           ...m.filter((x) => x.role !== 'draft'),
           { id: nextId.current++, role: 'draft', draft: final.draft },
         ])
+        // Заявка готова — клавіатуру геть (власник): з нею картка з
+        // «Створити заявку» не вміщалась, і клавіатуру доводилось ховати
+        // самому. Розмова тримає низ, тож картка стає вся видна, щойно
+        // клавіатура сховається. Лише коли розмову видно — інакше
+        // сховали б клавіатуру на іншому екрані.
+        if (visible.current) {
+          Keyboard.dismiss()
+          atBottomRef.current = true
+          setAtBottom(true)
+        }
       }
     } catch (err) {
       if (discarded()) return
@@ -453,6 +481,7 @@ export function ZunorChat() {
     setWaiting(false)
     setDuplicate(null)
     setCreatedJobId(null)
+    setBurstDone(false)
     setPendingPhotos([])
     setSentPhotos([])
     setUploadError('')
@@ -498,6 +527,8 @@ export function ZunorChat() {
         },
       })
       setCreatedJobId(res.job.id)
+      if (Platform.OS !== 'web')
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       void queryClient.invalidateQueries({ queryKey: ['jobs'] })
     } catch (err) {
       const body = err instanceof ApiError ? err.body : null
@@ -584,38 +615,66 @@ export function ZunorChat() {
     </View>
   )
 
+  // Заявку опубліковано (власник): спершу посередині — ЛИШЕ вибух успіху
+  // (зелений кружечок, конфеті, галочка), увесь фокус на ньому. Скінчився
+  // — кружечок плавно підіймається, звільняючи місце, і знизу по черзі
+  // випливають заголовок, опис, кнопки. Рівно, без пружин. Конфеті ширше
+  // за кружечок — відʼємний відступ, щоб заголовок не відʼїжджав.
+  // Кіт із лупою, що стояв тут раніше, — в archive/ у корені.
   if (createdJobId) {
     return (
       <View className="flex-1 bg-background">
         {topBar}
-        <View
-          className="flex-1 items-center justify-center gap-4 px-8 pb-16"
-          style={{ paddingTop: bar }}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingTop: bar,
+            paddingBottom: insets.bottom + 32,
+          }}
         >
-          <Tile icon="check" tint={TINT.green} size={68} />
-          <Text className="text-center text-[26px] font-bold tracking-tight text-foreground">
-            Готово!
-          </Text>
-          <Text className="text-center text-[16px] leading-[22px] text-muted-foreground">
-            Заявку опубліковано — шукаю вам клінера поруч. Пропозиції зʼявляться
-            в «Замовленнях».
-          </Text>
-          <View className="mt-3 w-full gap-2">
-            <Button
-              onPress={() =>
-                router.push({
-                  pathname: '/job/[id]',
-                  params: { id: createdJobId },
-                })
-              }
-            >
-              Відкрити заявку
-            </Button>
-            <Button variant="secondary" onPress={newChat}>
-              Нова розмова
-            </Button>
-          </View>
-        </View>
+          <Animated.View
+            layout={SUCCESS_SETTLE}
+            style={{ marginTop: -24, marginBottom: -28 }}
+          >
+            <SuccessBurst onDone={() => setBurstDone(true)} />
+          </Animated.View>
+          {burstDone ? (
+            <View className="w-full items-center px-8">
+              <Animated.View entering={successRise(0)}>
+                <Text className="text-center text-[26px] font-bold tracking-tight text-foreground">
+                  Заявку опубліковано
+                </Text>
+              </Animated.View>
+              <Animated.View entering={successRise(1)}>
+                <Text className="mt-2 text-center text-[16px] leading-[22px] text-muted-foreground">
+                  Шукаю вам майстра поруч. Пропозиції зʼявляться в
+                  «Замовленнях» — щойно хтось відгукнеться, я повідомлю.
+                </Text>
+              </Animated.View>
+              <Animated.View
+                entering={successRise(2)}
+                className="mt-7 w-full gap-2"
+              >
+                <Button
+                  onPress={() =>
+                    router.push({
+                      pathname: '/job/[id]',
+                      params: { id: createdJobId },
+                    })
+                  }
+                >
+                  Відкрити заявку
+                </Button>
+                <Button variant="secondary" onPress={newChat}>
+                  Нова розмова
+                </Button>
+              </Animated.View>
+            </View>
+          ) : null}
+        </ScrollView>
       </View>
     )
   }
@@ -807,12 +866,27 @@ export function ZunorChat() {
               самого краю — жодного згасання, — а прокручене заходить ПІД
               поле й там розмивається й тоне, сильніше до низу екрана
               (FooterBlur — дзеркало тла шапки). Без розмови під полем
-              нічого немає — тло звичайне. */}
+              нічого немає — тло звичайне.
+              Тло лежить на цій обгортці, а не в SafeAreaView: обгортка
+              точно від верху кнопок-відповідей до низу екрана, разом зі
+              смужкою «додому». Усередині SafeAreaView розмиття зникло —
+              під полем текст ішов чіткий (власник). */}
             <View
               pointerEvents="box-none"
               onLayout={(e) => setDock(e.nativeEvent.layout.height)}
               style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
             >
+              {started ? (
+                <FooterBlur />
+              ) : (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { backgroundColor: c.background },
+                  ]}
+                />
+              )}
               <SafeAreaView
                 // Над смужкою «додому» — ЗАВЖДИ: з клавіатурою цей відступ
                 // лягає на її верх (розпірка нижче на нього коротша).
@@ -820,17 +894,6 @@ export function ZunorChat() {
                 // додавались одним махом, і поле стрибало (власник).
                 edges={['bottom']}
               >
-                {started ? (
-                  <FooterBlur />
-                ) : (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      StyleSheet.absoluteFill,
-                      { backgroundColor: c.background },
-                    ]}
-                  />
-                )}
                 <View className="gap-2 pb-2 pt-1">
                   {uploadError ? (
                     <Text className="px-5 text-[13px] text-destructive">

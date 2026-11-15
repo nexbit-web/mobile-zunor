@@ -29,6 +29,7 @@ import { useUnreadChats } from '@/components/chat/use-chats'
 import { useUnreadCount } from '@/components/header-bell'
 import { Glyph } from '@/components/icons/glyph'
 import { GlowSurface } from '@/components/ui/glow-button'
+import { DockFade } from '@/components/ui/header-fade'
 import {
   dockBottom,
   DOCK_HEIGHT as H,
@@ -42,6 +43,8 @@ import { useColors, withAlpha } from '@/lib/theme'
 const PAD = 4
 /** Між пігулкою й «+». */
 const GAP = 10
+/** Затемнення під панеллю починається на стільки вище неї. */
+const FADE_LEAD = 28
 
 const SEG_H = H - PAD * 2
 
@@ -276,24 +279,44 @@ export function BottomDock({
 
   if (keyboard || hidden) return null
 
+  const fadeHeight = dockBottom(insets.bottom) + H + FADE_LEAD
+
   return (
-    // Зʼявляється й гасне плавно: коли виїжджає розмова (там панелі
-    // немає), коли відкривається клавіатура і коли на її місце стає
-    // смуга дій екрана (режим вибору в сповіщеннях).
-    <Animated.View
-      entering={FadeIn.duration(220)}
-      exiting={FadeOut.duration(180)}
-      pointerEvents="box-none"
-      style={{
-        position: 'absolute',
-        left: SIDE,
-        right: SIDE,
-        bottom: dockBottom(insets.bottom),
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: GAP,
-      }}
-    >
+    <>
+      {/* Під панеллю — плавне затемнення до самого низу екрана (власник):
+          зміст, що заходить під панель, тоне в колір фону. Починається
+          трохи вище панелі; гасне й зʼявляється разом із нею. */}
+      <Animated.View
+        entering={FadeIn.duration(220)}
+        exiting={FadeOut.duration(180)}
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: fadeHeight,
+        }}
+      >
+        <DockFade height={fadeHeight} lead={FADE_LEAD} />
+      </Animated.View>
+      {/* Зʼявляється й гасне плавно: коли виїжджає розмова (там панелі
+          немає), коли відкривається клавіатура і коли на її місце стає
+          смуга дій екрана (режим вибору в сповіщеннях). */}
+      <Animated.View
+        entering={FadeIn.duration(220)}
+        exiting={FadeOut.duration(180)}
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          left: SIDE,
+          right: SIDE,
+          bottom: dockBottom(insets.bottom),
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: GAP,
+        }}
+      >
       {/* Пігулка вкладок — «скляна» графітова поверхня. */}
       <GestureDetector gesture={Gesture.Race(pan, tap)}>
         <View
@@ -443,7 +466,8 @@ export function BottomDock({
           </GlowSurface>
         </Pressable>
       ) : null}
-    </Animated.View>
+      </Animated.View>
+    </>
   )
 }
 

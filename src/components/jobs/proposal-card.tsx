@@ -1,4 +1,12 @@
-import { Alert, Linking, Text, useColorScheme, View } from 'react-native'
+import { router } from 'expo-router'
+import {
+  Alert,
+  Linking,
+  Pressable,
+  Text,
+  useColorScheme,
+  View,
+} from 'react-native'
 
 import { Glyph } from '@/components/icons/glyph'
 import { Avatar } from '@/components/ui/avatar'
@@ -71,17 +79,50 @@ export function ProposalCard({
   const tone = mine ? (TONE[p.status] ?? 'live') : TONE[p.status]
   const phone = !mine ? (p.master.phone ?? null) : null
 
+  // Клієнтові дотик до фото чи імені — профіль майстра: рейтинг,
+  // приклади робіт, відгуки, перш ніж обрати (власник). Своя — ні.
+  const openMaster = mine
+    ? undefined
+    : () =>
+        router.push({ pathname: '/master/[id]', params: { id: p.master.id } })
+
   return (
     <View className="gap-3.5 rounded-[24px] bg-card p-4" style={SQUIRCLE}>
       <View className="flex-row items-start gap-3">
-        <Avatar uri={p.master.avatar} name={name} size={44} />
+        <Pressable
+          onPress={openMaster}
+          disabled={!openMaster}
+          hitSlop={4}
+          accessibilityRole={openMaster ? 'button' : undefined}
+          accessibilityLabel={openMaster ? `${name}, профіль майстра` : undefined}
+          className="active:opacity-70"
+        >
+          <Avatar uri={p.master.avatar} name={name} size={44} />
+        </Pressable>
         <View className="flex-1 gap-1">
-          <Text
-            numberOfLines={1}
-            className="text-[16px] font-semibold text-foreground"
+          <Pressable
+            onPress={openMaster}
+            disabled={!openMaster}
+            accessibilityRole={openMaster ? 'button' : undefined}
+            className="flex-row items-center gap-1 self-start active:opacity-70"
           >
-            {mine ? 'Ваша пропозиція' : name}
-          </Text>
+            <Text
+              numberOfLines={1}
+              className="shrink text-[16px] font-semibold text-foreground"
+            >
+              {mine ? 'Ваша пропозиція' : name}
+            </Text>
+            {openMaster ? (
+              <View style={{ opacity: 0.5 }}>
+                <Glyph
+                  name="chevron"
+                  size={11}
+                  color={c.mutedForeground}
+                  weight="semibold"
+                />
+              </View>
+            ) : null}
+          </Pressable>
           <View className="flex-row flex-wrap items-center gap-x-1.5 gap-y-1">
             {p.master.reviewsCount > 0 ? (
               <>
