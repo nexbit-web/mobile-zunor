@@ -13,6 +13,7 @@ import {
 } from '@/components/settings/list'
 import { api, errorText } from '@/lib/api'
 import { authClient } from '@/lib/auth'
+import { isTelegramLink } from '@/lib/open-link'
 import {
   disablePush,
   enablePush,
@@ -50,6 +51,12 @@ export default function NotificationSettings() {
   }, [waiting, refetch])
 
   async function connect(url: string) {
+    // Посилання приходить із сервера, але відкриває його система: лише
+    // справжній t.me, а не довільна схема.
+    if (!isTelegramLink(url)) {
+      Alert.alert('Не вдалося відкрити Telegram')
+      return
+    }
     setOpened(true)
     await Linking.openURL(url).catch(() => {
       setOpened(false)

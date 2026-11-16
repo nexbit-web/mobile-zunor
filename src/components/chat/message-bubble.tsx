@@ -1,5 +1,4 @@
 import { Image } from 'expo-image'
-import * as WebBrowser from 'expo-web-browser'
 import { memo, useState, type ReactNode } from 'react'
 import {
   ActivityIndicator,
@@ -12,6 +11,7 @@ import {
 import Animated, { FadeIn } from 'react-native-reanimated'
 
 import { Glyph } from '@/components/icons/glyph'
+import { openLink } from '@/lib/open-link'
 import { useColors, withAlpha } from '@/lib/theme'
 import {
   linkify,
@@ -231,7 +231,7 @@ export const MessageBubble = memo(function MessageBubble({
         {/* ─── Файл ─── */}
         {!deleted && m.type === 'FILE' && m.attachmentUrl ? (
           <Pressable
-            onPress={() => void WebBrowser.openBrowserAsync(m.attachmentUrl as string)}
+            onPress={() => openLink(m.attachmentUrl)}
             className="flex-row items-center gap-2.5 px-3 pt-2.5"
           >
             <View
@@ -265,7 +265,7 @@ export const MessageBubble = memo(function MessageBubble({
               part.kind === 'link' ? (
                 <Text
                   key={i}
-                  onPress={() => void WebBrowser.openBrowserAsync(part.href)}
+                  onPress={() => openLink(part.href)}
                   style={{
                     color: mine ? c.primaryForeground : c.primary,
                     textDecorationLine: 'underline',
@@ -286,7 +286,7 @@ export const MessageBubble = memo(function MessageBubble({
         {/* ─── Картка посилання ─── */}
         {!deleted && m.linkPreview ? (
           <Pressable
-            onPress={() => void WebBrowser.openBrowserAsync(m.linkPreview!.url)}
+            onPress={() => openLink(m.linkPreview?.url)}
             className="mx-2 mb-1.5 flex-row overflow-hidden rounded-[10px]"
             style={{
               backgroundColor: withAlpha(mine ? c.primaryForeground : c.primary, 0.12),

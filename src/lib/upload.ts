@@ -138,6 +138,11 @@ async function uploadImage(
     cloudName: string
     /** Для аватара — сталий publicId: нове фото перезаписує старе. */
     publicId?: string
+    /**
+     * Які формати прийме Cloudinary. Частина підпису сервера: шлемо
+     * дослівно полем `allowed_formats`, інакше підпис не зійдеться.
+     */
+    allowedFormats?: string
   }>('/api/upload/signature', {
     method: 'POST',
     json: { kind, resourceType: 'image' },
@@ -159,6 +164,7 @@ async function uploadImage(
   form.append('timestamp', String(sig.timestamp))
   form.append('signature', sig.signature)
   form.append('folder', sig.folder)
+  if (sig.allowedFormats) form.append('allowed_formats', sig.allowedFormats)
   if (sig.publicId) {
     form.append('public_id', sig.publicId)
     form.append('overwrite', 'true')
